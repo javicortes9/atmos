@@ -122,6 +122,37 @@ main{padding:0 0 calc(86px + var(--sb))}
 .day{cursor:pointer}.day:active{background:var(--bg3)}
 .day .go{color:var(--mute);font-size:18px}
 .yday{display:inline-block;margin-top:6px;padding:4px 10px;border-radius:999px;background:rgba(11,20,51,.5);font-size:14px}
+/* intro */
+.intro{position:fixed;inset:0;z-index:1300;background:radial-gradient(120% 80% at 50% 0%,#1b2a6b 0%,#0b1433 60%);display:none;flex-direction:column}
+.intro.on{display:flex}
+.skip{position:absolute;top:calc(var(--st) + 10px);right:14px;z-index:2;background:rgba(255,255,255,.08);border:1px solid var(--line);color:var(--ink);border-radius:999px;padding:8px 16px;min-height:40px;cursor:pointer}
+.slides{flex:1;display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none}
+.slides::-webkit-scrollbar{display:none}
+.slide{flex:none;width:100%;scroll-snap-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:calc(var(--st) + 56px) 28px 10px;gap:18px}
+.slide svg.ill{width:min(72vw,300px);height:min(72vw,300px);overflow:visible}
+.slide h1{font:800 clamp(30px,8vw,44px)/1.05 "Red Hat Display";max-width:520px}
+.slide p{color:#c9d2f5;font-size:17px;max-width:440px;margin:0}
+.slide .tag{font:700 13px "Red Hat Text";color:var(--c3);letter-spacing:.3px}
+.slide input{max-width:320px;width:100%;font-size:18px;text-align:center;padding:14px;border-radius:14px;border:1px solid var(--line);background:rgba(255,255,255,.07);color:var(--ink)}
+.slide .by{margin-top:6px;font-size:14px;color:var(--mute)}.slide .by b{color:var(--ink)}
+.ifoot{display:flex;align-items:center;justify-content:space-between;padding:12px 22px calc(18px + var(--sb))}
+.dots{display:flex;gap:8px}.dots i{width:8px;height:8px;border-radius:9px;background:rgba(255,255,255,.25);transition:width .25s,background .25s}
+.dots i.on{width:26px;background:var(--c3)}
+.inext{min-width:140px;font-size:17px}
+.splash{position:fixed;inset:0;z-index:1400;background:radial-gradient(120% 80% at 50% 0%,#1b2a6b 0%,#0b1433 60%);display:none;flex-direction:column;align-items:center;justify-content:center;gap:16px;text-align:center;padding:24px}
+.splash.on{display:flex}.splash.out{opacity:0;transition:opacity .5s}
+.sp-logo{width:96px;height:96px;border-radius:26px;background:url(icon-512.png) center/cover}
+.sp-hi{font:800 clamp(28px,8vw,40px)/1.1 "Red Hat Display"}
+.sp-by{color:var(--mute);font-size:14px}
+@media(prefers-reduced-motion:no-preference){
+ .spin{animation:spin 18s linear infinite;transform-origin:150px 150px}@keyframes spin{to{transform:rotate(360deg)}}
+ .sweep{animation:spin 4s linear infinite;transform-origin:150px 150px}
+ .float{animation:fl 4s ease-in-out infinite}@keyframes fl{50%{transform:translateY(-8px)}}
+ .draw{stroke-dasharray:600;stroke-dashoffset:600;animation:dr 2.4s ease forwards infinite alternate}@keyframes dr{to{stroke-dashoffset:0}}
+ .pulse{animation:pu 2.4s ease-out infinite;transform-origin:center;transform-box:fill-box}@keyframes pu{from{opacity:.9;transform:scale(.3)}to{opacity:0;transform:scale(1.6)}}
+ .grow{animation:gr 1.6s ease both;transform-origin:bottom;transform-box:fill-box}@keyframes gr{from{transform:scaleY(0)}}
+ .sp-logo{animation:fl 2s ease-in-out infinite}
+}
 /* modelos */
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
 .heat td,.heat th{padding:8px 6px;text-align:center;font-size:14px;white-space:nowrap}
@@ -313,6 +344,7 @@ nav.tabs a[aria-current=page]{color:var(--acc)}
     <h2>Visores especializados</h2>
     <p class="sub">Enlaces abiertos ya sobre tu ubicación cuando el visor lo permite.</p>
     <div id="links"></div>
+    <button class="btn ghost" id="replayIntro" style="margin-top:22px">Ver la introducción otra vez</button>
     <div class="sign"><div class="mono">JC</div><div><span>Diseñada y elaborada por</span><strong>Javier Cortés López</strong><span>Atmos · predicción meteorológica y clima, 2026</span></div></div>
     <p class="note">Datos de la app: Open-Meteo (CC BY 4.0) con modelos de ECMWF, DWD, NOAA, Météo-France, UK Met Office, KNMI, DMI y otros; ERA5 y CAMS de Copernicus; radar RainViewer; satélite NASA GIBS; mapas Windy y WXCharts; imagen de satélite y mapas base © Esri.</p>
   </div>
@@ -339,6 +371,13 @@ nav.tabs a[aria-current=page]{color:var(--acc)}
   </div>
 </div>
 
+<div class="intro" id="intro" role="dialog" aria-modal="true" aria-label="Introducción a Atmos">
+  <button class="skip" id="introSkip">Saltar</button>
+  <div class="slides" id="slides"></div>
+  <div class="ifoot"><div class="dots" id="dots"></div><button class="btn inext" id="introNext">Siguiente</button></div>
+</div>
+<div class="splash" id="splash" aria-hidden="true"><div class="sp-logo"></div><div class="sp-hi" id="spHi"></div><div class="sp-by">Atmos · por Javier Cortés López</div></div>
+
 <div class="dayview" id="dayView" role="dialog" aria-modal="true" aria-labelledby="dvTitle">
   <div class="dvhead"><button class="icon-btn" id="dvBack" aria-label="Volver">‹</button><div><h2 id="dvTitle">Día</h2><small id="dvSub"></small></div><div class="row" style="margin-left:auto;gap:4px"><button class="icon-btn" id="dvPrev" aria-label="Día anterior">←</button><button class="icon-btn" id="dvNext" aria-label="Día siguiente">→</button></div></div>
   <div class="dvbody wrap" id="dvBody"></div>
@@ -355,6 +394,6 @@ nav.tabs a[aria-current=page]{color:var(--acc)}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="app.js?v=8"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>

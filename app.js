@@ -870,7 +870,58 @@ $('#nameOk').onclick = () => saveName($('#nameIn').value);
 $('#nameForm').addEventListener('submit', e => { e.preventDefault(); saveName($('#nameIn').value); });
 $('#nameSkip').onclick = () => { store.set('atm.asked', true); $('#nameSheet').classList.remove('on'); };
 $('#hello').addEventListener('click', askName);
-if (!store.get('atm.asked', false)) setTimeout(askName, 600);
+/* ---------- introducción y bienvenida ---------- */
+const STR = ['#08519c','#2171b5','#4292c6','#6baed6','#9ecae1','#c6dbef','#fee0d2','#fcbba1','#fc9272','#fb6a4a','#ef3b2c','#cb181d'];
+const ILL = {
+  hola: `<svg class="ill" viewBox="0 0 300 300"><defs><clipPath id="sky"><rect x="0" y="0" width="300" height="172"/></clipPath></defs><g clip-path="url(#sky)"><g class="spin">${Array.from({length: 12}, (_, i) => `<rect x="146" y="20" width="8" height="34" rx="4" fill="#f7e463" transform="rotate(${i * 30} 150 150)"/>`).join('')}</g><circle cx="150" cy="150" r="70" fill="#f7e463"/></g><g transform="translate(0 175)">${STR.map((c, i) => `<rect class="grow" style="animation-delay:${i * 80}ms" x="${30 + i * 20}" y="0" width="20" height="90" fill="${c}"/>`).join('')}</g><rect x="30" y="172" width="240" height="6" fill="#0b1433"/></svg>`,
+  ahora: `<svg class="ill" viewBox="0 0 300 300"><g class="float"><path d="M70 150h150a40 40 0 0 0 0-80 60 60 0 0 0-112-14 44 44 0 0 0-38 94z" fill="#dfe5ff"/></g>${[0, 1, 2, 3, 4, 5, 6].map(i => `<rect class="grow" style="animation-delay:${i * 120}ms" x="${62 + i * 26}" y="${270 - [20, 45, 80, 60, 95, 40, 25][i]}" width="16" height="${[20, 45, 80, 60, 95, 40, 25][i]}" rx="4" fill="#4fc1c6"/>`).join('')}<text x="150" y="128" text-anchor="middle" font-family="Red Hat Display" font-weight="800" font-size="46" fill="#0b1433">18°</text></svg>`,
+  modelos: `<svg class="ill" viewBox="0 0 300 300"><rect x="30" y="40" width="240" height="220" rx="22" fill="rgba(255,255,255,.05)"/>${[['#f7e463', 'M45 200 C90 120 130 170 170 110 S240 90 255 70'], ['#e8452c', 'M45 210 C95 140 135 180 175 130 S240 110 255 95'], ['#4fc1c6', 'M45 190 C85 150 140 150 175 120 S235 120 255 110'], ['#8ea2ff', 'M45 220 C90 170 130 200 170 150 S235 140 255 130']].map(([c, d], i) => `<path class="draw" style="animation-delay:${i * 250}ms" d="${d}" fill="none" stroke="${c}" stroke-width="6" stroke-linecap="round"/>`).join('')}</svg>`,
+  mapas: `<svg class="ill" viewBox="0 0 300 300"><circle cx="150" cy="150" r="120" fill="#13306b"/><path d="M80 120c30-30 70-20 90-40s50 10 55 40-25 45-15 75-40 40-70 25-60-10-70-45 0-40 10-55z" fill="#2f6b4f"/><circle cx="150" cy="150" r="120" fill="none" stroke="#4fc1c6" stroke-opacity=".5"/><circle cx="150" cy="150" r="80" fill="none" stroke="#4fc1c6" stroke-opacity=".35"/><circle cx="150" cy="150" r="40" fill="none" stroke="#4fc1c6" stroke-opacity=".25"/><g class="sweep"><path d="M150 150L150 30A120 120 0 0 1 254 90z" fill="url(#sw)"/></g><defs><linearGradient id="sw" x1="0" x2="1"><stop offset="0" stop-color="#4fc1c6" stop-opacity="0"/><stop offset="1" stop-color="#4fc1c6" stop-opacity=".6"/></linearGradient></defs><circle class="pulse" cx="185" cy="115" r="16" fill="#f7e463"/><circle class="pulse" style="animation-delay:1.2s" cx="120" cy="185" r="12" fill="#e8452c"/><circle cx="150" cy="150" r="7" fill="#f7e463" stroke="#0b1433" stroke-width="3"/></svg>`,
+  clima: `<svg class="ill" viewBox="0 0 300 300">${Array.from({length: 24}, (_, i) => { const k = Math.min(11, Math.max(0, Math.round(i / 2 + Math.sin(i * 1.7) * 1.5))); return `<rect class="grow" style="animation-delay:${i * 45}ms" x="${30 + i * 10}" y="50" width="10" height="200" fill="${STR[k]}"/>`; }).join('')}<path class="draw" d="M30 210 C80 205 120 190 160 160 S240 90 270 70" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/></svg>`,
+  listo: `<svg class="ill" viewBox="0 0 300 300"><circle class="pulse" cx="150" cy="150" r="90" fill="#4fc1c6"/><circle cx="150" cy="150" r="90" fill="#f7e463"/><path d="M110 152l28 28 54-60" fill="none" stroke="#0b1433" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+};
+const SLIDES = [
+  {k: 'hola', tag: 'PREDICCIÓN Y CLIMA EN TU BOLSILLO', h: 'Hola, te damos la bienvenida a Atmos', p: 'Antes de empezar, ¿cómo te llamas? Solo lo usaremos para saludarte, y se queda en este móvil.', name: true},
+  {k: 'ahora', tag: 'AHORA', h: 'El tiempo, en este momento', p: 'Temperatura, viento, humedad y un aviso claro de si va a llover en las próximas horas, con radar en directo. Toca cualquier día para verlo hora a hora.'},
+  {k: 'modelos', tag: 'MODELOS', h: 'Compara los mejores modelos', p: 'ECMWF y su versión con inteligencia artificial, ICON, GFS, AROME, Met Office… y sus conjuntos, para saber cuánta confianza merece la previsión.'},
+  {k: 'mapas', tag: 'MAPAS', h: 'Radar, satélite y mapas', p: 'Radar animado sobre imagen de satélite, nubes reales de la NASA, Windy y WXCharts con todos sus mapas.'},
+  {k: 'clima', tag: 'CLIMA', h: 'El clima de tu lugar desde 1940', p: 'Franjas de calentamiento, anomalías, climograma y proyecciones hasta 2050, con datos de Copernicus.'},
+  {k: 'listo', tag: 'TODO LISTO', h: '¡A disfrutarlo!', p: 'Cambia tu ubicación arriba a la derecha y explora las pestañas de abajo. En «Visores» tienes más de 20 webs especializadas.', last: true}
+];
+let introIdx = 0;
+function renderIntro() {
+  const nm = store.get('atm.user', '');
+  $('#slides').innerHTML = SLIDES.map((s, i) => `<section class="slide" aria-roledescription="diapositiva" aria-label="${i + 1} de ${SLIDES.length}">${ILL[s.k]}<div class="tag">${s.tag}</div><h1 ${s.last ? 'id="introLastH"' : ''}>${s.last && nm ? `¡A disfrutarlo, ${esc(nm)}!` : s.h}</h1><p>${s.p}</p>${s.name ? `<input id="introName" type="text" maxlength="30" placeholder="Tu nombre" autocomplete="given-name" enterkeyhint="next" value="${esc(nm)}">` : ''}${s.last || s.name ? '<div class="by">Elaborada por <b>Javier Cortés López</b></div>' : ''}</section>`).join('');
+  $('#dots').innerHTML = SLIDES.map((_, i) => `<i class="${i === 0 ? 'on' : ''}"></i>`).join('');
+  introIdx = 0; setIntroBtn();
+  $('#introName').addEventListener('input', e => { const v = e.target.value.trim(); $('#introLastH').textContent = v ? `¡A disfrutarlo, ${v}!` : '¡A disfrutarlo!'; });
+  $('#introName').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); goIntro(1); } });
+}
+function setIntroBtn() { $('#introNext').textContent = introIdx === SLIDES.length - 1 ? 'Empezar' : 'Siguiente'; $('#dots').querySelectorAll('i').forEach((d, i) => d.classList.toggle('on', i === introIdx)); }
+function goIntro(i) { const sl = $('#slides'); sl.scrollTo({left: i * sl.clientWidth, behavior: reduceMotion ? 'auto' : 'smooth'}); }
+function finishIntro() {
+  const v = ($('#introName')?.value || '').trim();
+  if (v) store.set('atm.user', v.slice(0, 30));
+  store.set('atm.asked', true); store.set('atm.introDone', true);
+  $('#intro').classList.remove('on'); document.body.style.overflow = '';
+  if (S.lastNow) renderNow(S.lastNow);
+  setTimeout(() => nowMap && nowMap.invalidateSize(), 60);
+}
+function showIntro() { renderIntro(); $('#intro').classList.add('on'); document.body.style.overflow = 'hidden'; $('#slides').scrollLeft = 0; }
+$('#slides').addEventListener('scroll', () => { const sl = $('#slides'); const i = Math.round(sl.scrollLeft / sl.clientWidth); if (i !== introIdx) { introIdx = i; setIntroBtn(); if (i > 0) $('#introName')?.blur(); } }, {passive: true});
+$('#introNext').onclick = () => introIdx >= SLIDES.length - 1 ? finishIntro() : goIntro(introIdx + 1);
+$('#introSkip').onclick = finishIntro;
+$('#replayIntro').onclick = showIntro;
+addEventListener('keydown', e => { if (!$('#intro').classList.contains('on')) return; if (e.key === 'ArrowRight') goIntro(Math.min(SLIDES.length - 1, introIdx + 1)); if (e.key === 'ArrowLeft') goIntro(Math.max(0, introIdx - 1)); });
+function showSplash() {
+  const hr = new Date().getHours(), nm = store.get('atm.user', '');
+  const sal = hr >= 6 && hr < 14 ? 'Buenos días' : hr >= 14 && hr < 21 ? 'Buenas tardes' : 'Buenas noches';
+  $('#spHi').textContent = sal + (nm ? ', ' + nm : '');
+  const sp = $('#splash'); sp.classList.add('on');
+  setTimeout(() => sp.classList.add('out'), 1300);
+  setTimeout(() => { sp.classList.remove('on', 'out'); }, 1850);
+}
+if (!store.get('atm.introDone', false)) showIntro(); else showSplash();
 addEventListener('hashchange', () => route(false));
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.cur === 'ahora') loadNow(); });
 if (location.hash === '#dia') history.replaceState(null, '', '#ahora');
