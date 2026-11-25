@@ -131,6 +131,9 @@ function nowcast(j) {
 }
 function renderNow(j) {
   const c = j.current, d = j.daily, h = j.hourly;
+  const hr = +c.time.slice(11, 13);
+  const sal = hr >= 6 && hr < 14 ? 'Buenos días' : hr >= 14 && hr < 21 ? 'Buenas tardes' : 'Buenas noches';
+  $('#hello').innerHTML = `${sal}, Javi<small>Así está el tiempo en ${esc(S.loc.name)} ahora mismo</small>`;
   const cur = c.time.slice(0, 13);
   let i0 = h.time.findIndex(t => t.slice(0, 13) >= cur); if (i0 < 0) i0 = 0;
   const nc = nowcast(j);

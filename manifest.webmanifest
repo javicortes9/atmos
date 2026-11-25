@@ -1,5 +1,6 @@
 {
   "name": "Atmos · predicción y clima",
+  "description": "App de predicción y clima elaborada por Javier Cortés López",
   "short_name": "Atmos",
   "lang": "es",
   "start_url": "./#ahora",

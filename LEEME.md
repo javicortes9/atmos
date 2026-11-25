@@ -1,5 +1,7 @@
 # Atmos: predicción y clima
 
+Diseñada y elaborada por **Javier Cortés López**.
+
 Web app instalable (PWA) para iPhone. No necesita servidor propio ni claves de API.
 
 ## Archivos
