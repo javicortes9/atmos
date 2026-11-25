@@ -98,7 +98,7 @@ main{padding:0 0 calc(86px + var(--sb))}
 .nowplay{position:absolute;right:10px;bottom:28px;z-index:500}
 .rainsum{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:12px}
 .rainsum div{background:var(--bg3);border-radius:12px;padding:10px}.rainsum small{display:block;color:var(--mute);font-size:13px}.rainsum strong{font:800 18px "Red Hat Display";white-space:nowrap}
-.hello{font:800 clamp(24px,6vw,32px)/1.1 "Red Hat Display";margin:0 0 14px}.hello small{display:block;font:400 15px "Red Hat Text";color:var(--mute);margin-top:4px}
+.hello{font:800 clamp(24px,6vw,32px)/1.1 "Red Hat Display";margin:0 0 14px}.hello{cursor:pointer}.hello small{display:block;font:400 15px "Red Hat Text";color:var(--mute);margin-top:4px}
 .sign{margin-top:28px;padding:22px;border-radius:var(--r);background:linear-gradient(135deg,var(--bg3),var(--bg2));border:1px solid var(--line);display:flex;gap:16px;align-items:center}
 .sign .mono{flex:none;width:58px;height:58px;border-radius:50%;display:grid;place-items:center;font:800 22px "Red Hat Display";color:#0b1433;background:conic-gradient(var(--c1),var(--c2),var(--c3),var(--c4),var(--c1))}
 .sign strong{font:800 19px "Red Hat Display";display:block}.sign span{color:var(--mute);font-size:14px}
@@ -320,8 +320,17 @@ nav.tabs a[aria-current=page]{color:var(--acc)}
   </div>
 </div>
 
+<div class="sheet" id="nameSheet" role="dialog" aria-modal="true" aria-labelledby="nameTitle">
+  <div class="panel">
+    <h2 id="nameTitle">Bienvenido a Atmos</h2>
+    <p class="sub">¿Cómo te llamas? Lo usaremos solo para saludarte; se guarda en este móvil y no se envía a ningún sitio.</p>
+    <form id="nameForm"><input id="nameIn" type="text" maxlength="30" placeholder="Tu nombre" autocomplete="given-name" enterkeyhint="done"></form>
+    <div class="row" style="margin-top:12px"><button class="btn" id="nameOk">Guardar</button><button class="btn ghost" id="nameSkip">Ahora no</button></div>
+  </div>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="app.js?v=6"></script>
+<script src="app.js?v=7"></script>
 </body>
 </html>

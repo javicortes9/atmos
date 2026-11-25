@@ -133,7 +133,9 @@ function renderNow(j) {
   const c = j.current, d = j.daily, h = j.hourly;
   const hr = +c.time.slice(11, 13);
   const sal = hr >= 6 && hr < 14 ? 'Buenos días' : hr >= 14 && hr < 21 ? 'Buenas tardes' : 'Buenas noches';
-  $('#hello').innerHTML = `${sal}, Javi<small>Así está el tiempo en ${esc(S.loc.name)} ahora mismo</small>`;
+  const who = store.get('atm.user', '');
+  $('#hello').innerHTML = `${sal}${who ? ', ' + esc(who) : ''}<small>Así está el tiempo en ${esc(S.loc.name)} ahora mismo${who ? '' : ' · toca aquí para decirnos tu nombre'}</small>`;
+  S.lastNow = j;
   const cur = c.time.slice(0, 13);
   let i0 = h.time.findIndex(t => t.slice(0, 13) >= cur); if (i0 < 0) i0 = 0;
   const nc = nowcast(j);
@@ -727,6 +729,14 @@ $('#rvPlay').onclick = () => {
 $('#nowPlay').onclick = () => nowPlay(!nowTimer);
 $('#wOverlay').addEventListener('click', e => { const b = e.target.closest('[data-w]'); if (!b) return; S.wOv = b.dataset.w; renderWindy(); });
 $('#wProd').addEventListener('click', e => { const b = e.target.closest('[data-p]'); if (!b) return; S.wProd = b.dataset.p; renderWindy(); });
+/* nombre de la persona usuaria */
+function askName() { $('#nameIn').value = store.get('atm.user', ''); $('#nameSheet').classList.add('on'); setTimeout(() => $('#nameIn').focus(), 80); }
+function saveName(v) { store.set('atm.user', (v || '').trim().slice(0, 30)); store.set('atm.asked', true); $('#nameSheet').classList.remove('on'); if (S.lastNow) renderNow(S.lastNow); }
+$('#nameOk').onclick = () => saveName($('#nameIn').value);
+$('#nameForm').addEventListener('submit', e => { e.preventDefault(); saveName($('#nameIn').value); });
+$('#nameSkip').onclick = () => { store.set('atm.asked', true); $('#nameSheet').classList.remove('on'); };
+$('#hello').addEventListener('click', askName);
+if (!store.get('atm.asked', false)) setTimeout(askName, 600);
 addEventListener('hashchange', () => route(false));
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.cur === 'ahora') loadNow(); });
 route(true);
