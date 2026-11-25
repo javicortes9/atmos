@@ -305,17 +305,24 @@ async function loadEnsemble() {
 /* =========================================================
    MAPAS
    ========================================================= */
-let map, marker, base, rvFrames = [], rvLayers = [], rvIdx = 0, rvTimer = null, satLayer;
-const LAYERS = [{id: 'radar', l: 'Radar'}, {id: 'sat', l: 'Satélite color real'}, {id: 'none', l: 'Solo mapa'}];
+let map, marker, rvFrames = [], rvLayers = [], rvIdx = 0, rvTimer = null, BL = {};
+const LAYERS = [{id: 'radar', l: 'Radar sobre satélite'}, {id: 'sat', l: 'Nubes de ayer (NASA)'}, {id: 'topo', l: 'Mapa topográfico'}];
 function initMap() {
   if (map) { map.invalidateSize(); map.setView([S.loc.lat, S.loc.lon]); marker.setLatLng([S.loc.lat, S.loc.lon]); return; }
   map = L.map('map', {zoomControl: true, attributionControl: true}).setView([S.loc.lat, S.loc.lon], 7);
+  map.createPane('labels'); map.getPane('labels').style.zIndex = 650; map.getPane('labels').style.pointerEvents = 'none';
   const esri = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
-  base = L.tileLayer(esri + 'Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {maxZoom: 16, attribution: 'Mapa © Esri, HERE, Garmin, © OpenStreetMap'}).addTo(map);
-  L.tileLayer(esri + 'Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {maxZoom: 16, pane: 'overlayPane', zIndex: 20}).addTo(map);
-  marker = L.circleMarker([S.loc.lat, S.loc.lon], {radius: 7, color: '#0b1433', weight: 2, fillColor: '#f7e463', fillOpacity: 1}).addTo(map);
+  BL.img = L.tileLayer(esri + 'World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom: 18, maxNativeZoom: 17, attribution: 'Imagen © Esri, Maxar, Earthstar Geographics'});
+  BL.topo = L.tileLayer(esri + 'World_Topo_Map/MapServer/tile/{z}/{y}/{x}', {maxZoom: 18, attribution: 'Mapa © Esri, HERE, Garmin, © OpenStreetMap'});
+  BL.labels = L.tileLayer(esri + 'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {maxZoom: 18, pane: 'labels'});
+  // NASA GIBS: VIIRS NOAA-20 (SNPP ya no se publica); si un día falla, MODIS Terra
   const y = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
-  satLayer = L.tileLayer(`https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_SNPP_CorrectedReflectance_TrueColor/default/${y}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg`, {maxNativeZoom: 9, maxZoom: 14, attribution: 'NASA GIBS · VIIRS ' + y});
+  const gibs = lay => `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${lay}/default/${y}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg`;
+  BL.nasa = L.tileLayer(gibs('VIIRS_NOAA20_CorrectedReflectance_TrueColor'), {maxNativeZoom: 9, maxZoom: 14, attribution: 'NASA GIBS · VIIRS NOAA-20 · ' + y});
+  let fell = false;
+  BL.nasa.on('tileerror', () => { if (fell) return; fell = true; BL.nasa.setUrl(gibs('MODIS_Terra_CorrectedReflectance_TrueColor')); });
+  BL.img.addTo(map); BL.labels.addTo(map);
+  marker = L.circleMarker([S.loc.lat, S.loc.lon], {radius: 7, color: '#0b1433', weight: 2, fillColor: '#f7e463', fillOpacity: 1, pane: 'labels'}).addTo(map);
   map.on('click', e => {
     const {lat, lng} = e.latlng;
     const div = document.createElement('div');
@@ -326,6 +333,7 @@ function initMap() {
     L.popup().setLatLng(e.latlng).setContent(div).openOn(map);
   });
   $('#layerChips').innerHTML = LAYERS.map(l => `<button class="chip" data-l="${l.id}" aria-pressed="${l.id === S.layer}">${l.l}</button>`).join('');
+  applyLayer();
   loadRadar();
 }
 async function loadRadar() {
@@ -344,9 +352,10 @@ function showFrame(i) {
 function applyLayer() {
   if (!map) return;
   document.querySelectorAll('#layerChips .chip').forEach(c => c.setAttribute('aria-pressed', c.dataset.l === S.layer));
-  if (S.layer === 'sat') satLayer.addTo(map); else map.removeLayer(satLayer);
+  const want = S.layer === 'sat' ? 'nasa' : S.layer === 'topo' ? 'topo' : 'img';
+  ['img', 'topo', 'nasa'].forEach(k => { if (k === want) { if (!map.hasLayer(BL[k])) BL[k].addTo(map); } else if (map.hasLayer(BL[k])) map.removeLayer(BL[k]); });
   if (S.layer === 'radar' && rvLayers.length) { showFrame(rvIdx); $('#rvPlay').hidden = false; }
-  else { rvLayers.forEach(l => map.hasLayer(l) && map.removeLayer(l)); stopRadar(); $('#rvPlay').hidden = true; $('#rvtime').textContent = S.layer === 'sat' ? 'Mosaico VIIRS de ayer (NASA)' : ''; }
+  else { rvLayers.forEach(l => map.hasLayer(l) && map.removeLayer(l)); stopRadar(); $('#rvPlay').hidden = S.layer !== 'radar'; $('#rvtime').textContent = S.layer === 'sat' ? 'Mosaico de satélite de ayer: nubes reales (NASA)' : S.layer === 'topo' ? 'Relieve, carreteras y núcleos' : 'Cargando radar…'; }
 }
 function stopRadar() { clearInterval(rvTimer); rvTimer = null; $('#rvPlay').textContent = '▶'; }
 const WOV = [['wind', 'Viento'], ['gust', 'Rachas'], ['rain', 'Lluvia'], ['temp', 'Temperatura'], ['clouds', 'Nubes'], ['pressure', 'Presión'], ['cape', 'CAPE'], ['rh', 'Humedad'], ['waves', 'Oleaje']];
