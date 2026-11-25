@@ -76,7 +76,7 @@ main{padding:0 0 calc(86px + var(--sb))}
 .hr .h{font-size:13px;opacity:.85}.hr .v{font:800 19px "Red Hat Display"}.hr .p{font-size:13px;min-height:19px}.hr svg.wx{width:30px;height:30px;display:block;margin:2px auto}
 .hr .w{font-size:13px;display:flex;justify-content:center;gap:2px;align-items:center}
 .days{display:grid;gap:2px}
-.day{display:grid;grid-template-columns:62px 34px minmax(0,1fr) 54px;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid var(--line)}
+.day{display:grid;grid-template-columns:58px 32px minmax(0,1fr) 54px 14px;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid var(--line)}
 .day .n{font-weight:700}.day .n small{display:block;font-weight:400;color:var(--mute);font-size:13px}
 .day svg{width:32px;height:32px}
 .rng{display:grid;grid-template-columns:34px minmax(0,1fr) 34px;gap:8px;align-items:center;font-variant-numeric:tabular-nums}
@@ -103,6 +103,25 @@ main{padding:0 0 calc(86px + var(--sb))}
 .sign .mono{flex:none;width:58px;height:58px;border-radius:50%;display:grid;place-items:center;font:800 22px "Red Hat Display";color:#0b1433;background:conic-gradient(var(--c1),var(--c2),var(--c3),var(--c4),var(--c1))}
 .sign strong{font:800 19px "Red Hat Display";display:block}.sign span{color:var(--mute);font-size:14px}
 .credit{text-align:center;color:var(--mute);font-size:13px;padding:8px 16px 4px}
+.dayview{position:fixed;inset:0;z-index:1150;background:var(--bg);display:none;flex-direction:column}
+.dayview.on{display:flex}
+.dvhead{display:flex;align-items:center;gap:8px;padding:calc(var(--st) + 8px) max(3vw,10px) 8px;border-bottom:1px solid var(--line);background:rgba(11,20,51,.96)}
+.dvhead small{color:var(--mute);font-size:13px}
+.dvhead .icon-btn{font-size:26px;color:var(--ink)}
+.dvbody{overflow-y:auto;-webkit-overflow-scrolling:touch;padding:16px max(4vw,14px) calc(30px + var(--sb));width:100%}
+.dvsum{font:700 18px/1.4 "Red Hat Display";padding:16px;border-radius:16px;margin-bottom:14px}
+.dvsum svg.wx{float:right;width:64px;height:64px;margin:-6px -4px 4px 10px}
+.dvsum small{display:block;font:400 14px "Red Hat Text";opacity:.85;margin-top:6px}
+.dvcharts{display:grid;gap:14px;grid-template-columns:minmax(0,1fr);margin-top:14px}
+@media(min-width:900px){.dvcharts{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
+.dvcharts .fig{height:230px}
+.htab td,.htab th{padding:7px 8px;text-align:right;white-space:nowrap;font-size:13px;border-bottom:1px solid var(--line)}
+.htab th{color:var(--mute);font-weight:500;position:sticky;top:0;background:var(--bg2)}
+.htab td:first-child,.htab th:first-child{position:sticky;left:0;background:var(--bg2);text-align:left;z-index:1}
+.htab svg.wx{width:24px;height:24px;vertical-align:middle}
+.day{cursor:pointer}.day:active{background:var(--bg3)}
+.day .go{color:var(--mute);font-size:18px}
+.yday{display:inline-block;margin-top:6px;padding:4px 10px;border-radius:999px;background:rgba(11,20,51,.5);font-size:14px}
 /* modelos */
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
 .heat td,.heat th{padding:8px 6px;text-align:center;font-size:14px;white-space:nowrap}
@@ -208,7 +227,7 @@ nav.tabs a[aria-current=page]{color:var(--acc)}
   </div>
   <div class="band wrap" style="padding-top:0">
     <div class="grid2">
-      <div class="card"><h2>16 días</h2><p class="sub">Mínima y máxima sobre la escala térmica; probabilidad y cantidad de lluvia a la derecha.</p><div class="days" id="days"></div></div>
+      <div class="card"><h2>16 días</h2><p class="sub">Toca un día para ver su detalle hora a hora.</p><div class="days" id="days"></div></div>
       <div class="card"><h2>Aire, polvo y polen</h2><p class="sub">Copernicus CAMS · índice europeo de calidad del aire.</p><div class="aq" id="aq"></div><div class="fig" style="height:220px;margin-top:14px"><canvas id="aqChart"></canvas></div></div>
     </div>
   </div>
@@ -320,6 +339,11 @@ nav.tabs a[aria-current=page]{color:var(--acc)}
   </div>
 </div>
 
+<div class="dayview" id="dayView" role="dialog" aria-modal="true" aria-labelledby="dvTitle">
+  <div class="dvhead"><button class="icon-btn" id="dvBack" aria-label="Volver">‹</button><div><h2 id="dvTitle">Día</h2><small id="dvSub"></small></div><div class="row" style="margin-left:auto;gap:4px"><button class="icon-btn" id="dvPrev" aria-label="Día anterior">←</button><button class="icon-btn" id="dvNext" aria-label="Día siguiente">→</button></div></div>
+  <div class="dvbody wrap" id="dvBody"></div>
+</div>
+
 <div class="sheet" id="nameSheet" role="dialog" aria-modal="true" aria-labelledby="nameTitle">
   <div class="panel">
     <h2 id="nameTitle">Bienvenido a Atmos</h2>
@@ -331,6 +355,6 @@ nav.tabs a[aria-current=page]{color:var(--acc)}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="app.js?v=7"></script>
+<script src="app.js?v=8"></script>
 </body>
 </html>

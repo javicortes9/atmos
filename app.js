@@ -93,10 +93,10 @@ const xTicks = () => ({maxTicksLimit: narrow() ? 4 : 8, maxRotation: 0, autoSkip
 async function loadNow() {
   const box = $('#nowBox');
   if (!box.querySelector('.t')) box.innerHTML = '<div class="state">Cargando el tiempo actual…</div>';
-  const u = `https://api.open-meteo.com/v1/forecast?${LL()}&timezone=auto&forecast_days=16&past_hours=3` +
+  const u = `https://api.open-meteo.com/v1/forecast?${LL()}&timezone=auto&forecast_days=16&past_hours=24` +
     '&current=temperature_2m,apparent_temperature,relative_humidity_2m,dew_point_2m,weather_code,is_day,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl,precipitation,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,uv_index,shortwave_radiation,freezing_level_height,cape' +
     '&minutely_15=precipitation,precipitation_probability&forecast_minutely_15=24' +
-    '&hourly=temperature_2m,precipitation,precipitation_probability,weather_code,wind_speed_10m,wind_direction_10m,is_day,pressure_msl' +
+    '&hourly=temperature_2m,precipitation,precipitation_probability,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,is_day,pressure_msl,cloud_cover' +
     '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,sunrise,sunset,uv_index_max,daylight_duration';
   try {
     const j = await getJSON(u);
@@ -139,6 +139,11 @@ function renderNow(j) {
   const cur = c.time.slice(0, 13);
   let i0 = h.time.findIndex(t => t.slice(0, 13) >= cur); if (i0 < 0) i0 = 0;
   const nc = nowcast(j);
+  const ty = i0 >= 24 ? h.temperature_2m[i0 - 24] : null;
+  const dT = ty == null ? null : c.temperature_2m - ty;
+  const yd = dT == null ? '' : `<span class="yday">${Math.abs(dT) < 0.5 ? 'Igual que ayer a esta hora' : `${num(Math.abs(dT))}° ${dT > 0 ? 'más' : 'menos'} que ayer a esta hora`}</span>`;
+  const today = c.time.slice(0, 10);
+  const todaySum = 'Hoy: ' + daySummary(h, h.time.map((t, i) => t.startsWith(today) ? i : -1).filter(i => i >= 0)).t;
   $('#nowBox').style.background = `linear-gradient(150deg, ${tCol(c.temperature_2m)} -30%, var(--bg2) 70%)`;
   $('#nowBox').innerHTML = `${wx(c.weather_code, c.is_day)}
     <div class="m" style="margin:0 0 4px">Ahora · ${hhmm(c.time)} h</div>
@@ -146,6 +151,8 @@ function renderNow(j) {
     <div class="d">${esc(WMO[c.weather_code] || '')}</div>
     <div class="m">Sensación ${num(c.apparent_temperature)}° · Máx ${num(d.temperature_2m_max[0])}° · Mín ${num(d.temperature_2m_min[0])}°</div>
     ${nc ? `<div class="cast${nc.wet ? ' wet' : ''}">${esc(nc.t)}<small>${esc(nc.s)}</small></div>` : ''}
+    ${yd}
+    <div class="m" style="margin-top:10px;color:var(--ink)">${esc(todaySum)}</div>
     <div class="m" style="margin-top:10px">${esc(S.loc.name)}${S.loc.admin ? ', ' + esc(S.loc.admin) : ''} · ${j.elevation != null ? num(j.elevation) + ' m' : ''}</div>`;
   const p3 = i0 >= 3 ? h.pressure_msl[i0] - h.pressure_msl[i0 - 3] : null;
   const trend = p3 == null ? '' : p3 > 0.8 ? 'subiendo' : p3 < -0.8 ? 'bajando' : 'estable';
@@ -195,6 +202,7 @@ function renderNow(j) {
     {label: 'Lluvia mm', data: idx.map(i => h.precipitation[i]), backgroundColor: '#4fc1c6', borderRadius: 2, yAxisID: 'yr'}]},
     options: {interaction: {mode: 'index', intersect: false}, plugins: {legend: {position: 'bottom', labels: {font: {size: 11}}}},
       scales: {x: {ticks: xTicks(), grid: {display: false}}, yt: {position: 'left', title: {display: !narrow(), text: '°C'}}, yr: {position: 'right', beginAtZero: true, suggestedMax: 2, grid: {display: false}, title: {display: !narrow(), text: 'mm'}}, yp: {display: false, min: 0, max: 100}}}});
+  S.days16 = d.time;
   // 16 días
   const lo = Math.min(...d.temperature_2m_min.filter(v => v != null)), hi = Math.max(...d.temperature_2m_max.filter(v => v != null));
   const span = Math.max(1, hi - lo);
@@ -203,11 +211,135 @@ function renderNow(j) {
     if (mn == null) return '';
     const a = (mn - lo) / span * 100, b = (mx - lo) / span * 100;
     const p = pd(t);
-    return `<div class="day"><div class="n">${i === 0 ? 'Hoy' : DOW[p.w]}<small>${p.d} ${MON[p.m - 1]}</small></div>${wx(d.weather_code[i], 1)}
+    return `<div class="day" data-day="${t}" role="button" tabindex="0" aria-label="Detalle del ${DOW[p.w]} ${p.d}"><div class="n">${i === 0 ? 'Hoy' : DOW[p.w]}<small>${p.d} ${MON[p.m - 1]}</small></div>${wx(d.weather_code[i], 1)}
       <div class="rng"><span>${num(mn)}°</span><div class="bar"><i style="left:${a}%;width:${Math.max(3, b - a)}%;background:linear-gradient(90deg,${tCol(mn)},${tCol(mx)})"></i></div><span>${num(mx)}°</span></div>
-      <div class="pp">${d.precipitation_probability_max[i] != null ? d.precipitation_probability_max[i] + ' %' : ''}${d.precipitation_sum[i] >= 0.5 ? '<br>' + num(d.precipitation_sum[i], 1) + ' mm' : ''}</div></div>`;
+      <div class="pp">${d.precipitation_probability_max[i] != null ? d.precipitation_probability_max[i] + ' %' : ''}${d.precipitation_sum[i] >= 0.5 ? '<br>' + num(d.precipitation_sum[i], 1) + ' mm' : ''}</div><span class="go">›</span></div>`;
   }).join('');
 }
+/* ---------- frase-resumen de un día ---------- */
+function daySummary(H, ids) {
+  const sumv = (k, I) => I.reduce((x, i) => x + (H[k]?.[i] || 0), 0);
+  const avg = (k, I) => { const v = I.map(i => H[k]?.[i]).filter(x => x != null); return v.length ? v.reduce((x, y) => x + y, 0) / v.length : null; };
+  const part = (a, b, name) => {
+    const I = ids.filter(i => { const hh = +H.time[i].slice(11, 13); return hh >= a && hh < b; });
+    if (!I.length) return null;
+    const t = avg('temperature_2m', I), cc = avg('cloud_cover', I), p = sumv('precipitation', I);
+    const feel = t < 5 ? 'frío' : t < 12 ? 'fresco' : t < 20 ? 'templado' : t < 28 ? 'cálido' : 'caluroso';
+    const sky = p >= 5 ? 'lluvioso' : p >= 0.5 ? 'con algún chubasco' : cc == null ? '' : cc < 25 ? 'despejado' : cc < 65 ? 'con nubes y claros' : 'nublado';
+    return `${name}, ${feel}${sky ? (sky.startsWith('con') ? ' ' : ' y ') + sky : ''}`;
+  };
+  const parts = [part(6, 13, 'por la mañana'), part(13, 20, 'por la tarde'), part(20, 24, 'por la noche')].filter(Boolean);
+  const T = ids.map(i => H.temperature_2m[i]);
+  const mx = Math.max(...T.filter(x => x != null)), imx = ids[T.indexOf(mx)];
+  const wv = Math.max(0, ...ids.map(i => H.wind_speed_10m?.[i] || 0)), gu = Math.max(0, ...ids.map(i => H.wind_gusts_10m?.[i] || 0));
+  const wd = H.wind_direction_10m ? dirTxt(avg('wind_direction_10m', ids.filter(i => (H.wind_speed_10m[i] || 0) >= wv * .6))) : '';
+  const wtxt = wv < 12 ? 'viento flojo' : wv < 30 ? 'viento moderado' : wv < 50 ? 'viento fuerte' : 'viento muy fuerte';
+  const p = sumv('precipitation', ids);
+  let s = parts.join('; ');
+  s = s.charAt(0).toUpperCase() + s.slice(1);
+  const t = `${s}. Máxima de ${num(mx)}° hacia las ${H.time[imx]?.slice(11, 13)} h; ${wtxt}${wd ? ' del ' + wd : ''}${gu >= 40 ? `, rachas de ${num(gu)} km/h` : ''}. ${p >= 0.2 ? num(p, 1) + ' mm de lluvia en total.' : 'Sin lluvia.'}`;
+  return {t, mx, p};
+}
+/* ---------- vista de detalle de un día ---------- */
+const DV = 'temperature_2m,apparent_temperature,dew_point_2m,relative_humidity_2m,precipitation,precipitation_probability,rain,showers,snowfall,weather_code,is_day,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,wind_speed_10m,wind_gusts_10m,wind_direction_10m,shortwave_radiation,direct_radiation,diffuse_radiation,uv_index,sunshine_duration,et0_fao_evapotranspiration,vapour_pressure_deficit,pressure_msl,visibility,freezing_level_height,cape,soil_temperature_6cm,soil_moisture_3_to_9cm';
+const DVD = 'weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_sum,precipitation_hours,precipitation_probability_max,et0_fao_evapotranspiration,shortwave_radiation_sum,sunshine_duration,daylight_duration,sunrise,sunset,uv_index_max,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant';
+let dvDay = null;
+async function openDay(day) {
+  dvDay = day;
+  const p = pd(day), list = S.days16 || [];
+  const k = list.indexOf(day);
+  $('#dvTitle').textContent = `${k === 0 ? 'Hoy, ' : ''}${['domingo','lunes','martes','miércoles','jueves','viernes','sábado'][p.w]} ${p.d} de ${['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'][p.m - 1]}`;
+  $('#dvSub').textContent = S.loc.name + ' · detalle hora a hora';
+  $('#dvPrev').disabled = k <= 0; $('#dvNext').disabled = k < 0 || k >= list.length - 1;
+  $('#dayView').classList.add('on'); document.body.style.overflow = 'hidden';
+  if (location.hash !== '#dia') history.pushState(null, '', '#dia');
+  const body = $('#dvBody'); body.scrollTop = 0;
+  body.innerHTML = '<div class="state">Cargando el detalle horario…</div>';
+  try {
+    const j = await getJSON(`https://api.open-meteo.com/v1/forecast?${LL()}&timezone=auto&start_date=${day}&end_date=${day}&hourly=${DV}&daily=${DVD}`);
+    if (dvDay !== day) return;
+    renderDay(j);
+  } catch (e) { body.innerHTML = `<div class="state err">No se pudo cargar: ${esc(e.message)}</div>`; }
+}
+function closeDay() { $('#dayView').classList.remove('on'); document.body.style.overflow = ''; Object.keys(S.charts).filter(k => k.startsWith('dv')).forEach(k => { S.charts[k].destroy(); delete S.charts[k]; }); }
+function renderDay(j) {
+  const H = j.hourly, D = j.daily, ids = H.time.map((_, i) => i);
+  const sm = daySummary(H, ids);
+  const lab = H.time.map(t => t.slice(11, 13) + 'h');
+  const sun = s => s == null ? '–' : `${Math.floor(s / 3600)} h ${Math.round(s % 3600 / 60)} min`;
+  const tiles = [
+    ['Máx / mín', `${num(D.temperature_2m_max[0])}° / ${num(D.temperature_2m_min[0])}°`, `sensación ${num(D.apparent_temperature_max[0])}° / ${num(D.apparent_temperature_min[0])}°`],
+    ['Precipitación', num(D.precipitation_sum[0], 1) + ' mm', `${num(D.precipitation_hours[0])} h con lluvia · prob. ${num(D.precipitation_probability_max[0])} %`],
+    ['Evapotranspiración', num(D.et0_fao_evapotranspiration[0], 1) + ' mm', 'ET₀ FAO-56 de referencia'],
+    ['Balance P − ET₀', sgn(D.precipitation_sum[0] - D.et0_fao_evapotranspiration[0], 1) + ' mm', D.precipitation_sum[0] >= D.et0_fao_evapotranspiration[0] ? 'excedente de agua' : 'déficit de agua'],
+    ['Radiación', num(D.shortwave_radiation_sum[0], 1) + ' MJ/m²', `UV máx. ${num(D.uv_index_max[0], 1)}`],
+    ['Sol', sun(D.sunshine_duration[0]), `de ${sun(D.daylight_duration[0])} de luz`],
+    ['Viento', `${num(D.wind_speed_10m_max[0])} km/h`, `rachas ${num(D.wind_gusts_10m_max[0])} · del ${dirTxt(D.wind_direction_10m_dominant[0])}`],
+    ['Orto / ocaso', `${D.sunrise[0]?.slice(11, 16)} / ${D.sunset[0]?.slice(11, 16)}`, '']
+  ];
+  const tm = D.temperature_2m_max[0];
+  $('#dvBody').innerHTML = `
+    <div class="dvsum" style="background:linear-gradient(135deg, ${tCol(tm)} -40%, var(--bg2) 75%)">${wx(D.weather_code[0], 1)}${esc(sm.t)}<small>${esc(WMO[D.weather_code[0]] || '')}</small></div>
+    <div class="kv kv4">${tiles.map(([k, v, s]) => `<div><small>${k}</small><strong>${v}</strong>${s ? `<em>${s}</em>` : ''}</div>`).join('')}</div>
+    <div class="dvcharts">
+      <div class="card"><h3>Temperatura</h3><div class="fig"><canvas id="dv1"></canvas></div></div>
+      <div class="card"><h3>Precipitación</h3><div class="fig"><canvas id="dv2"></canvas></div></div>
+      <div class="card"><h3>Viento</h3><div class="fig"><canvas id="dv3"></canvas></div></div>
+      <div class="card"><h3>Humedad y nubes</h3><div class="fig"><canvas id="dv4"></canvas></div></div>
+      <div class="card"><h3>Radiación y UV</h3><div class="fig"><canvas id="dv5"></canvas></div></div>
+      <div class="card"><h3>Evapotranspiración y déficit de presión de vapor</h3><div class="fig"><canvas id="dv6"></canvas></div></div>
+      <div class="card"><h3>Presión e isocero</h3><div class="fig"><canvas id="dv7"></canvas></div></div>
+      <div class="card"><h3>Suelo</h3><div class="fig"><canvas id="dv8"></canvas></div></div>
+    </div>
+    <div class="card" style="margin-top:14px"><h3>Tabla horaria</h3><p class="sub">Desliza a la derecha para ver todas las variables.</p>
+      <div class="scroll" style="max-height:70vh"><table class="htab"><thead><tr>${['Hora', '', 'T °C', 'Sens.', 'Rocío', 'HR %', 'P mm', 'Prob.', 'Viento', 'Rachas', 'Nubes %', 'Rad. W/m²', 'UV', 'ET₀ mm', 'Pres.', 'Visib. km'].map(x => `<th>${x}</th>`).join('')}</tr></thead><tbody>
+      ${ids.map(i => `<tr><td>${lab[i]}</td><td>${wx(H.weather_code[i], H.is_day[i])}</td><td style="color:${tCol(H.temperature_2m[i])};font-weight:700">${num(H.temperature_2m[i], 1)}</td><td>${num(H.apparent_temperature[i])}</td><td>${num(H.dew_point_2m[i])}</td><td>${num(H.relative_humidity_2m[i])}</td><td>${H.precipitation[i] ? num(H.precipitation[i], 1) : '–'}</td><td>${num(H.precipitation_probability[i])} %</td><td>${arrow(H.wind_direction_10m[i])} ${num(H.wind_speed_10m[i])} ${dirTxt(H.wind_direction_10m[i])}</td><td>${num(H.wind_gusts_10m[i])}</td><td>${num(H.cloud_cover[i])}</td><td>${num(H.shortwave_radiation[i])}</td><td>${num(H.uv_index[i], 1)}</td><td>${num(H.et0_fao_evapotranspiration[i], 2)}</td><td>${num(H.pressure_msl[i])}</td><td>${H.visibility[i] == null ? '–' : num(H.visibility[i] / 1000, 1)}</td></tr>`).join('')}
+      </tbody></table></div></div>`;
+  const X = {x: {grid: {display: false}, ticks: {maxTicksLimit: narrow() ? 7 : 12, maxRotation: 0}}};
+  const O = (extra = {}) => ({interaction: {mode: 'index', intersect: false}, plugins: {legend: {position: 'bottom', labels: {font: {size: 11}}}}, scales: {...X, ...extra}});
+  setChart('dv1', {type: 'line', data: {labels: lab, datasets: [
+    {label: 'Temperatura', data: H.temperature_2m, borderColor: '#f59a3a', borderWidth: 2.6, segment: {borderColor: c => tCol(c.p1.parsed.y)}},
+    {label: 'Sensación', data: H.apparent_temperature, borderColor: '#ff9ad5', borderDash: [5, 4]},
+    {label: 'Punto de rocío', data: H.dew_point_2m, borderColor: '#4fc1c6', borderWidth: 1.5}]}, options: O({y: {title: {display: true, text: '°C'}}})});
+  setChart('dv2', {type: 'bar', data: {labels: lab, datasets: [
+    {type: 'line', label: 'Probabilidad %', data: H.precipitation_probability, borderColor: '#f7e463', yAxisID: 'y1'},
+    {label: 'Lluvia', data: H.rain.map((r, i) => (r || 0) + (H.showers[i] || 0)), backgroundColor: '#4fc1c6', stack: 'p'},
+    {label: 'Nieve (cm)', data: H.snowfall, backgroundColor: '#ffffff', stack: 'p'}]},
+    options: O({y: {beginAtZero: true, suggestedMax: 1, stacked: true, title: {display: true, text: 'mm'}}, y1: {position: 'right', min: 0, max: 100, grid: {display: false}}, x: {...X.x, stacked: true}})});
+  setChart('dv3', {type: 'line', data: {labels: lab, datasets: [
+    {label: 'Viento medio', data: H.wind_speed_10m, borderColor: '#8ea2ff', borderWidth: 2.4},
+    {label: 'Rachas', data: H.wind_gusts_10m, borderColor: '#e8452c', borderDash: [5, 4]}]},
+    options: {...O({y: {beginAtZero: true, title: {display: true, text: 'km/h'}}}), plugins: {legend: {position: 'bottom'}, tooltip: {callbacks: {afterBody: it => 'Dirección: del ' + dirTxt(H.wind_direction_10m[it[0].dataIndex]) + ` (${num(H.wind_direction_10m[it[0].dataIndex])}°)`}}}}});
+  setChart('dv4', {type: 'line', data: {labels: lab, datasets: [
+    {label: 'Humedad relativa %', data: H.relative_humidity_2m, borderColor: '#4fc1c6', borderWidth: 2.4},
+    {label: 'Nubes bajas', data: H.cloud_cover_low, borderColor: 'rgba(223,229,255,.9)', backgroundColor: 'rgba(223,229,255,.25)', fill: 'origin', borderWidth: 1},
+    {label: 'Medias', data: H.cloud_cover_mid, borderColor: 'rgba(174,185,230,.8)', borderWidth: 1, borderDash: [3, 3]},
+    {label: 'Altas', data: H.cloud_cover_high, borderColor: 'rgba(142,162,255,.8)', borderWidth: 1, borderDash: [1, 3]}]}, options: O({y: {min: 0, max: 100, title: {display: true, text: '%'}}})});
+  setChart('dv5', {type: 'line', data: {labels: lab, datasets: [
+    {label: 'Global', data: H.shortwave_radiation, borderColor: '#f7e463', backgroundColor: 'rgba(247,228,99,.22)', fill: 'origin'},
+    {label: 'Directa', data: H.direct_radiation, borderColor: '#f59a3a', borderWidth: 1.5},
+    {label: 'Difusa', data: H.diffuse_radiation, borderColor: '#aeb9e6', borderWidth: 1.5},
+    {label: 'Índice UV', data: H.uv_index, borderColor: '#ff5fb0', borderDash: [5, 4], yAxisID: 'y1'}]},
+    options: O({y: {beginAtZero: true, title: {display: true, text: 'W/m²'}}, y1: {position: 'right', beginAtZero: true, grid: {display: false}, title: {display: true, text: 'UV'}}})});
+  setChart('dv6', {type: 'bar', data: {labels: lab, datasets: [
+    {type: 'line', label: 'Déficit de presión de vapor (kPa)', data: H.vapour_pressure_deficit, borderColor: '#f59a3a', yAxisID: 'y1'},
+    {label: 'ET₀ (mm/h)', data: H.et0_fao_evapotranspiration, backgroundColor: '#9be3b0'}]},
+    options: O({y: {beginAtZero: true, title: {display: true, text: 'mm'}}, y1: {position: 'right', beginAtZero: true, grid: {display: false}, title: {display: true, text: 'kPa'}}})});
+  setChart('dv7', {type: 'line', data: {labels: lab, datasets: [
+    {label: 'Presión (hPa)', data: H.pressure_msl, borderColor: '#eef1ff'},
+    {label: 'Isocero (m)', data: H.freezing_level_height, borderColor: '#4fc1c6', borderDash: [5, 4], yAxisID: 'y1'}]},
+    options: O({y: {title: {display: true, text: 'hPa'}}, y1: {position: 'right', grid: {display: false}, title: {display: true, text: 'm'}}})});
+  setChart('dv8', {type: 'line', data: {labels: lab, datasets: [
+    {label: 'Temperatura del suelo a 6 cm (°C)', data: H.soil_temperature_6cm, borderColor: '#d6b38a'},
+    {label: 'Humedad del suelo 3–9 cm (m³/m³)', data: H.soil_moisture_3_to_9cm, borderColor: '#4fc1c6', yAxisID: 'y1'}]},
+    options: O({y: {title: {display: true, text: '°C'}}, y1: {position: 'right', grid: {display: false}, title: {display: true, text: 'm³/m³'}}})});
+}
+$('#days').addEventListener('click', e => { const r = e.target.closest('[data-day]'); if (r) openDay(r.dataset.day); });
+$('#days').addEventListener('keydown', e => { const r = e.target.closest('[data-day]'); if (r && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openDay(r.dataset.day); } });
+$('#dvBack').onclick = () => history.back();
+$('#dvPrev').onclick = () => { const L = S.days16 || [], k = L.indexOf(dvDay); if (k > 0) openDay(L[k - 1]); };
+$('#dvNext').onclick = () => { const L = S.days16 || [], k = L.indexOf(dvDay); if (k >= 0 && k < L.length - 1) openDay(L[k + 1]); };
+
 /* radar de la portada */
 let rvPromise = null, rvAt = 0;
 const rvData = () => { if (!rvPromise || Date.now() - rvAt > 5 * 60e3) { rvAt = Date.now(); rvPromise = getJSON('https://api.rainviewer.com/public/weather-maps.json').catch(e => { rvPromise = null; throw e; }); } return rvPromise; };
@@ -682,6 +814,8 @@ async function search(q) {
    ========================================================= */
 const VIEWS = ['ahora', 'modelos', 'mapas', 'clima', 'visores'];
 function route(force) {
+  if (location.hash === '#dia') return;
+  if ($('#dayView').classList.contains('on')) closeDay();
   const v = VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'ahora';
   VIEWS.forEach(x => $('#v-' + x).classList.toggle('on', x === v));
   document.querySelectorAll('nav.tabs a').forEach(a => a.toggleAttribute('aria-current', false) || (a.getAttribute('href') === '#' + v && a.setAttribute('aria-current', 'page')));
@@ -739,6 +873,7 @@ $('#hello').addEventListener('click', askName);
 if (!store.get('atm.asked', false)) setTimeout(askName, 600);
 addEventListener('hashchange', () => route(false));
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.cur === 'ahora') loadNow(); });
+if (location.hash === '#dia') history.replaceState(null, '', '#ahora');
 route(true);
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
