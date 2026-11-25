@@ -12,5 +12,6 @@ self.addEventListener('fetch', e => {
   const shell = u.origin === location.origin || u.hostname === 'cdnjs.cloudflare.com' || u.hostname.endsWith('gstatic.com') || u.hostname === 'fonts.googleapis.com';
   if (!shell) return; // APIs, teselas y Windy: siempre a la red
   // red primero para la propia app (actualizaciones), caché como respaldo
-  e.respondWith(fetch(e.request).then(r => { const c = r.clone(); caches.open(V).then(ca => ca.put(e.request, c)); return r; }).catch(() => caches.match(e.request, {ignoreSearch: true})));
+  const req = u.origin === location.origin ? fetch(e.request.url, {cache: 'no-cache'}) : fetch(e.request);
+  e.respondWith(req.then(r => { const c = r.clone(); caches.open(V).then(ca => ca.put(e.request, c)); return r; }).catch(() => caches.match(e.request, {ignoreSearch: true})));
 });
