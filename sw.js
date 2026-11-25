@@ -1,5 +1,5 @@
 // Atmos service worker: la app abre sin conexión; los datos siempre se piden en directo.
-const V = 'atmos-v9';
+const V = 'atmos-v10';
 const SHELL = ['./', 'index.html', 'app.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'icon-180.png',
   'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js',

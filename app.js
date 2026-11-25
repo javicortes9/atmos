@@ -96,7 +96,7 @@ async function loadNow() {
   const u = `https://api.open-meteo.com/v1/forecast?${LL()}&timezone=auto&forecast_days=16&past_hours=24` +
     '&current=temperature_2m,apparent_temperature,relative_humidity_2m,dew_point_2m,weather_code,is_day,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl,precipitation,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,uv_index,shortwave_radiation,freezing_level_height,cape' +
     '&minutely_15=precipitation,precipitation_probability&forecast_minutely_15=24' +
-    '&hourly=temperature_2m,precipitation,precipitation_probability,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,is_day,pressure_msl,cloud_cover' +
+    '&hourly=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,precipitation_probability,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,is_day,pressure_msl,cloud_cover,uv_index,shortwave_radiation' +
     '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,sunrise,sunset,uv_index_max,daylight_duration';
   try {
     const j = await getJSON(u);
@@ -203,6 +203,8 @@ function renderNow(j) {
     options: {interaction: {mode: 'index', intersect: false}, plugins: {legend: {position: 'bottom', labels: {font: {size: 11}}}},
       scales: {x: {ticks: xTicks(), grid: {display: false}}, yt: {position: 'left', title: {display: !narrow(), text: '°C'}}, yr: {position: 'right', beginAtZero: true, suggestedMax: 2, grid: {display: false}, title: {display: !narrow(), text: 'mm'}}, yp: {display: false, min: 0, max: 100}}}});
   S.days16 = d.time;
+  renderAlert(j);
+  renderActs(j);
   // 16 días
   const lo = Math.min(...d.temperature_2m_min.filter(v => v != null)), hi = Math.max(...d.temperature_2m_max.filter(v => v != null));
   const span = Math.max(1, hi - lo);
@@ -216,6 +218,75 @@ function renderNow(j) {
       <div class="pp">${d.precipitation_probability_max[i] != null ? d.precipitation_probability_max[i] + ' %' : ''}${d.precipitation_sum[i] >= 0.5 ? '<br>' + num(d.precipitation_sum[i], 1) + ' mm' : ''}</div><span class="go">›</span></div>`;
   }).join('');
 }
+/* ---------- alerta «sal ya o te mojas» ---------- */
+const locEpoch = (t, off) => { const [d, hm] = t.split('T'); const [y, m, dd] = d.split('-').map(Number); const [H, M] = hm.split(':').map(Number); return Date.UTC(y, m - 1, dd, H, M) - off * 1000; };
+function renderAlert(j) {
+  const box = $('#rainAlert'), m = j.minutely_15;
+  if (!m || !m.precipitation) { box.innerHTML = ''; return; }
+  const off = j.utc_offset_seconds || 0, now = Date.now();
+  const slots = m.time.map((t, i) => ({ts: t, t0: locEpoch(t, off) - 15 * 60e3, t1: locEpoch(t, off), p: m.precipitation[i] || 0})).filter(s => s.t1 > now);
+  // minutely_15: cada valor es la suma de los 15 min ANTERIORES a su hora
+  if (!slots.length) { box.innerHTML = ''; return; }
+  const wet = s => s.p >= 0.1;
+  const drops = Array.from({length: 14}, (_, i) => `<i style="left:${5 + i * 7}%;animation-delay:${(i * 0.37) % 1.1}s"></i>`).join('');
+  if (wet(slots[0]) || (j.current.precipitation || 0) > 0) {
+    const stop = slots.findIndex(s => !wet(s));
+    const mins = stop < 0 ? null : Math.max(0, Math.round((slots[stop].t0 - now) / 60e3));
+    const tot = slots.slice(0, stop < 0 ? 8 : stop).reduce((x, s) => x + s.p, 0);
+    box.innerHTML = `<div class="ralert now" role="status">${drops}<div class="cd">${mins == null ? '<b>+2 h</b><small>seguirá</small>' : `<b>${mins}</b><small>min</small>`}</div><div><h3>Está lloviendo</h3><p>${mins == null ? 'Seguirá lloviendo al menos 2 horas' : `Debería parar en unos ${mins} minutos`} · ${num(tot, 1)} mm más</p></div></div>`;
+    return;
+  }
+  const start = slots.findIndex(wet);
+  if (start < 0) { box.innerHTML = ''; return; }
+  const mins = Math.max(0, Math.round((slots[start].t0 - now) / 60e3));
+  if (mins > 90) { box.innerHTML = ''; return; }
+  let end = slots.findIndex((s, i) => i > start && !wet(s));
+  const tot = slots.slice(start, end < 0 ? undefined : end).reduce((x, s) => x + s.p, 0);
+  const urg = mins <= 30;
+  box.innerHTML = `<div class="ralert" role="alert">${drops}<div class="cd"><b>${mins}</b><small>min</small></div><div><h3>${urg ? '¡Sal ya o te mojas!' : 'Lluvia en camino'}</h3><p>Empieza a llover en unos ${mins} minutos · ${num(tot, 1)} mm${end > 0 ? `, hasta las ${hhmm(slots[end - 1].ts)}` : ''}</p></div></div>`;
+}
+setInterval(() => { if (S.lastNow && S.cur === 'ahora') renderAlert(S.lastNow); }, 30e3);
+
+/* ---------- mejores momentos para salir ---------- */
+const tri = (v, lo, hi, soft) => v == null ? 0.5 : v >= lo && v <= hi ? 1 : Math.max(0, 1 - (v < lo ? lo - v : v - hi) / soft);
+const ACTS = [
+  {k: 'run', l: 'Correr o caminar', dur: 2, hrs: [7, 22], ico: '<circle cx="26" cy="7" r="3.5"/><path d="M17 18l6-5 5 4 5 1M23 13l-3 10 6 5-2 9M20 23l-6 4-4-2"/>',
+    f: (x) => 100 * tri(x.at, 7, 18, 10) * x.dry * (0.6 + 0.4 * tri(x.ws, 0, 20, 20)) * (0.7 + 0.3 * tri(x.uv, 0, 6, 4)) * (0.6 + 0.4 * tri(x.aq, 0, 40, 40)),
+    why: x => `${num(x.at)}° de sensación, ${x.ws < 12 ? 'poco viento' : 'algo de viento'}${x.aq != null ? (x.aq <= 40 ? ', aire limpio' : ', aire regular') : ''}`},
+  {k: 'bike', l: 'Ir en bici', dur: 2, hrs: [8, 20], ico: '<circle cx="10" cy="28" r="7"/><circle cx="30" cy="28" r="7"/><path d="M10 28l7-12h9l4 12M17 16l5 12h8M14 11h6"/>',
+    f: (x) => 100 * tri(x.at, 12, 24, 10) * x.dry * tri(Math.max(x.ws, x.gu * 0.7), 0, 15, 20),
+    why: x => `${num(x.at)}°, viento ${num(x.ws)} km/h${x.gu > 35 ? ` y rachas de ${num(x.gu)}` : ''}`},
+  {k: 'ropa', l: 'Tender la ropa', dur: 3, hrs: [8, 19], ico: '<path d="M3 8h34"/><path d="M9 8l-4 6 4 2v14h12V16l4-2-4-6"/><path d="M27 8v18M23 8l4 4 4-4"/>',
+    f: (x) => x.p >= 0.1 || x.pp >= 35 || !x.day ? 0 : 100 * (0.35 + 0.65 * Math.min(1, x.rad / 550)) * (0.45 + 0.55 * tri(x.rh, 0, 60, 35)) * (0.7 + 0.3 * tri(x.ws, 6, 25, 15)),
+    why: x => `${x.rad > 350 ? 'sol' : 'algo de sol'}, humedad del ${num(x.rh)} %${x.ws >= 8 ? ' y brisa' : ''}`},
+  {k: 'terraza', l: 'Terraza o paseo', dur: 2, hrs: [11, 23], ico: '<path d="M6 16h28l-4-8H10z"/><path d="M20 16v18M12 34h16M9 22h22"/>',
+    f: (x) => 100 * tri(x.at, 18, 27, 8) * x.dry * tri(x.ws, 0, 15, 15) * (1 - (x.cc || 0) / 250),
+    why: x => `${num(x.at)}° de sensación, ${x.cc < 30 ? 'cielo despejado' : x.cc < 70 ? 'nubes y claros' : 'nublado'}`}
+];
+const QL = s => s >= 75 ? ['Ideal', '#9be3b0'] : s >= 50 ? ['Buena', '#4fc1c6'] : s >= 30 ? ['Regular', '#f7e463'] : ['Poco recomendable', '#f59a3a'];
+function renderActs(j) {
+  const h = j.hourly, cur = j.current.time.slice(0, 13);
+  let i0 = h.time.findIndex(t => t.slice(0, 13) >= cur); if (i0 < 0) i0 = 0;
+  const I = Array.from({length: 36}, (_, k) => i0 + k).filter(i => i < h.time.length);
+  const X = i => ({at: h.apparent_temperature[i], ws: h.wind_speed_10m[i] || 0, gu: h.wind_gusts_10m[i] || 0, p: h.precipitation[i] || 0, pp: h.precipitation_probability[i] || 0, uv: h.uv_index[i], rh: h.relative_humidity_2m[i], rad: h.shortwave_radiation[i] || 0, cc: h.cloud_cover[i], day: h.is_day[i], aq: S.aqH ? S.aqH[h.time[i]] : null,
+    get dry() { return this.p >= 0.2 ? 0 : this.p >= 0.05 ? 0.4 : 1 - Math.max(0, this.pp - 20) / 100; }});
+  const today = j.current.time.slice(0, 10);
+  const dayW = t => t.startsWith(today) ? 'Hoy' : 'Mañana';
+  $('#acts').innerHTML = ACTS.map(a => {
+    const sc = I.map(i => { const hh = +h.time[i].slice(11, 13); return hh >= a.hrs[0] && hh < a.hrs[1] ? Math.round(a.f(X(i))) : 0; });
+    let best = -1, bi = -1;
+    for (let k = 0; k + a.dur <= sc.length; k++) { const w = sc.slice(k, k + a.dur); if (w.some(v => v === 0)) continue; const m = w.reduce((x, y) => x + y, 0) / a.dur; if (m > best + 2) { best = m; bi = k; } }
+    const [ql, qc] = bi < 0 ? ['Sin buen momento', '#f59a3a'] : QL(best);
+    const t0 = bi < 0 ? null : h.time[I[bi]], t1 = bi < 0 ? null : h.time[I[bi + a.dur - 1]];
+    const mid = bi < 0 ? null : X(I[bi + Math.floor(a.dur / 2)]);
+    const strip = sc.map((v, k) => `<span title="${h.time[I[k]].slice(11, 13)} h" style="background:${v === 0 ? 'rgba(255,255,255,.06)' : scaleCol(v / 100, [[0, '#e8452c'], [.3, '#f59a3a'], [.5, '#f7e463'], [.75, '#4fc1c6'], [1, '#9be3b0']])}${k === bi ? ';outline:2px solid #fff;outline-offset:-1px' : ''}"></span>`).join('');
+    return `<div class="act"><div class="top"><svg class="ai" viewBox="0 0 40 40">${a.ico}</svg><h3>${a.l}</h3><span class="q" style="background:${qc}">${ql}</span></div>
+      <div class="when">${bi < 0 ? 'No hay un buen hueco en 36 h' : `${dayW(t0)}, de ${t0.slice(11, 13)} a ${String(+t1.slice(11, 13) + 1).padStart(2, '0')} h`}</div>
+      <div class="why">${bi < 0 ? 'Lluvia, viento o temperaturas poco agradables' : esc(a.why(mid))}</div>
+      <div class="hs">${strip}</div><div class="hl"><span>ahora</span><span>+12 h</span><span>+24 h</span><span>+36 h</span></div></div>`;
+  }).join('');
+}
+
 /* ---------- frase-resumen de un día ---------- */
 function daySummary(H, ids) {
   const sumv = (k, I) => I.reduce((x, i) => x + (H[k]?.[i] || 0), 0);
@@ -386,6 +457,8 @@ async function loadAQ() {
   try {
     const j = await getJSON(`https://air-quality-api.open-meteo.com/v1/air-quality?${LL()}&timezone=auto&forecast_days=4&hourly=european_aqi,pm2_5,pm10,dust,uv_index,ozone,olive_pollen,grass_pollen,birch_pollen`);
     const h = j.hourly, now = new Date();
+    S.aqH = {}; h.time.forEach((t, k) => S.aqH[t] = h.european_aqi[k]);
+    if (S.lastNow) renderActs(S.lastNow);
     const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}T${String(now.getHours()).padStart(2, '0')}`;
     let i = h.time.findIndex(t => t.slice(0, 13) >= stamp); if (i < 0) i = 0;
     const aqi = h.european_aqi[i], cat = AQI.find(a => (aqi ?? 0) <= a[0]);
