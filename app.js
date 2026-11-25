@@ -310,7 +310,9 @@ const LAYERS = [{id: 'radar', l: 'Radar'}, {id: 'sat', l: 'Satélite color real'
 function initMap() {
   if (map) { map.invalidateSize(); map.setView([S.loc.lat, S.loc.lon]); marker.setLatLng([S.loc.lat, S.loc.lon]); return; }
   map = L.map('map', {zoomControl: true, attributionControl: true}).setView([S.loc.lat, S.loc.lon], 7);
-  base = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {maxZoom: 18, subdomains: 'abcd', attribution: '© OpenStreetMap · © CARTO'}).addTo(map);
+  const esri = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
+  base = L.tileLayer(esri + 'Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {maxZoom: 16, attribution: 'Mapa © Esri, HERE, Garmin, © OpenStreetMap'}).addTo(map);
+  L.tileLayer(esri + 'Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {maxZoom: 16, pane: 'overlayPane', zIndex: 20}).addTo(map);
   marker = L.circleMarker([S.loc.lat, S.loc.lon], {radius: 7, color: '#0b1433', weight: 2, fillColor: '#f7e463', fillOpacity: 1}).addTo(map);
   const y = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
   satLayer = L.tileLayer(`https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_SNPP_CorrectedReflectance_TrueColor/default/${y}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg`, {maxNativeZoom: 9, maxZoom: 14, attribution: 'NASA GIBS · VIIRS ' + y});
