@@ -84,6 +84,17 @@ main{padding:0 0 calc(86px + var(--sb))}
 .aq{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
 .aq div{border-radius:14px;padding:12px;background:var(--bg3)}
 .aq small{color:var(--mute);display:block;font-size:13px}.aq strong{font:800 24px "Red Hat Display"}
+.kv4{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media(min-width:720px){.kv4{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.kv em{font-style:normal;display:block;color:var(--mute);font-size:13px;margin-top:2px}
+.cast{margin-top:14px;padding:12px 14px;border-radius:14px;background:rgba(11,20,51,.55);font:700 17px/1.35 "Red Hat Display"}
+.cast small{display:block;font:400 14px "Red Hat Text";color:var(--mute);margin-top:3px}
+.cast.wet{background:rgba(59,79,216,.55)}
+.nowmap{position:relative;height:340px;border-radius:14px;overflow:hidden;border:1px solid var(--line)}
+#nowMap{position:absolute;inset:0;z-index:0;isolation:isolate;background:#0e1a40}
+.nowplay{position:absolute;right:10px;bottom:28px;z-index:500}
+.rainsum{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:12px}
+.rainsum div{background:var(--bg3);border-radius:12px;padding:10px}.rainsum small{display:block;color:var(--mute);font-size:13px}.rainsum strong{font:800 18px "Red Hat Display";white-space:nowrap}
 /* modelos */
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
 .heat td,.heat th{padding:8px 6px;text-align:center;font-size:14px;white-space:nowrap}
@@ -161,18 +172,34 @@ nav.tabs a[aria-current=page]{color:var(--acc)}
 <section class="view" id="v-ahora">
   <div class="band wrap">
     <div class="hero">
-      <div class="now" id="nowBox"><div class="state">Cargando predicción…</div></div>
-      <div class="kv" id="nowKv"></div>
+      <div class="now" id="nowBox"><div class="state">Cargando el tiempo actual…</div></div>
+      <div class="kv kv4" id="nowKv"></div>
+    </div>
+  </div>
+  <div class="band wrap" style="padding-top:0">
+    <div class="grid2">
+      <div class="card">
+        <div class="row" style="justify-content:space-between"><h2>Radar en directo</h2><span class="note" id="nowRvTime" style="margin:0">—</span></div>
+        <p class="sub">Últimas 2 horas sobre imagen de satélite. Toca ▶ para pausar o reanudar.</p>
+        <div class="nowmap"><div id="nowMap"></div><button class="play nowplay" id="nowPlay" aria-label="Pausar radar">❚❚</button></div>
+      </div>
+      <div class="card">
+        <h2>Lluvia, próximas 6 horas</h2>
+        <p class="sub">Cada 15 minutos (barras, mm) y probabilidad (línea). Modelos de alta resolución.</p>
+        <div class="fig" style="height:250px"><canvas id="nowRain"></canvas></div>
+        <div class="rainsum" id="rainSum"></div>
+      </div>
     </div>
   </div>
   <div class="band wrap" style="padding-top:0">
     <h2>Próximas 48 horas</h2>
-    <p class="sub">Mejor combinación de modelos de alta resolución para este punto (Open-Meteo «best match»).</p>
+    <p class="sub">Desliza la tira; debajo, temperatura, lluvia y su probabilidad en una sola gráfica.</p>
     <div class="strip" id="hours"></div>
+    <div class="card" style="margin-top:12px"><div class="fig" style="height:260px"><canvas id="h48"></canvas></div></div>
   </div>
   <div class="band wrap" style="padding-top:0">
     <div class="grid2">
-      <div class="card"><h2>16 días</h2><p class="sub">Mínima y máxima sobre la escala térmica; probabilidad de precipitación a la derecha.</p><div class="days" id="days"></div></div>
+      <div class="card"><h2>16 días</h2><p class="sub">Mínima y máxima sobre la escala térmica; probabilidad y cantidad de lluvia a la derecha.</p><div class="days" id="days"></div></div>
       <div class="card"><h2>Aire, polvo y polen</h2><p class="sub">Copernicus CAMS · índice europeo de calidad del aire.</p><div class="aq" id="aq"></div><div class="fig" style="height:220px;margin-top:14px"><canvas id="aqChart"></canvas></div></div>
     </div>
   </div>
@@ -284,6 +311,6 @@ nav.tabs a[aria-current=page]{color:var(--acc)}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="app.js?v=4"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>

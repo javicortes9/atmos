@@ -92,11 +92,12 @@ const xTicks = () => ({maxTicksLimit: narrow() ? 4 : 8, maxRotation: 0, autoSkip
    ========================================================= */
 async function loadNow() {
   const box = $('#nowBox');
-  box.innerHTML = '<div class="state">Cargando predicción…</div>';
-  const u = `https://api.open-meteo.com/v1/forecast?${LL()}&timezone=auto&forecast_days=16` +
-    '&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,is_day,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl,precipitation,cloud_cover' +
-    '&hourly=temperature_2m,precipitation,precipitation_probability,weather_code,wind_speed_10m,wind_direction_10m,is_day' +
-    '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,sunrise,sunset,uv_index_max';
+  if (!box.querySelector('.t')) box.innerHTML = '<div class="state">Cargando el tiempo actual…</div>';
+  const u = `https://api.open-meteo.com/v1/forecast?${LL()}&timezone=auto&forecast_days=16&past_hours=3` +
+    '&current=temperature_2m,apparent_temperature,relative_humidity_2m,dew_point_2m,weather_code,is_day,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl,precipitation,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,uv_index,shortwave_radiation,freezing_level_height,cape' +
+    '&minutely_15=precipitation,precipitation_probability&forecast_minutely_15=24' +
+    '&hourly=temperature_2m,precipitation,precipitation_probability,weather_code,wind_speed_10m,wind_direction_10m,is_day,pressure_msl' +
+    '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,sunrise,sunset,uv_index_max,daylight_duration';
   try {
     const j = await getJSON(u);
     store.set('atm.cacheNow', {k: LL(), j});
@@ -106,29 +107,73 @@ async function loadNow() {
     if (c && c.k === LL()) { renderNow(c.j); box.insertAdjacentHTML('beforeend', '<p class="note err">Sin conexión: mostrando la última predicción guardada.</p>'); }
     else box.innerHTML = `<div class="state err">No se pudo cargar la predicción: ${esc(e.message)}</div>`;
   }
+  initNowRadar();
   loadAQ();
+}
+const DIR = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];
+const dirTxt = d => d == null ? '' : DIR[Math.round(d / 45) % 8];
+const hhmm = t => t.slice(11, 16);
+function nowcast(j) {
+  const m = j.minutely_15, c = j.current;
+  if (!m || !m.precipitation || m.precipitation.every(v => v == null)) return null;
+  let k0 = m.time.findIndex(t => t >= c.time); if (k0 < 0) k0 = 0;
+  const T = m.time.slice(k0), P = m.precipitation.slice(k0).map(v => v || 0), PP = m.precipitation_probability ? m.precipitation_probability.slice(k0) : [];
+  const total = P.reduce((x, y) => x + y, 0), maxPP = Math.max(0, ...PP.filter(v => v != null));
+  const wetNow = (c.precipitation || 0) > 0 || P[0] >= 0.05;
+  if (wetNow) {
+    const stop = P.findIndex(v => v < 0.05);
+    return {wet: true, t: stop < 0 ? 'Está lloviendo y seguirá en las próximas 6 horas' : `Está lloviendo; debería parar hacia las ${hhmm(T[stop])}`, s: `${num(total, 1)} mm previstos en 6 h`};
+  }
+  const start = P.findIndex(v => v >= 0.05);
+  if (start < 0) return {wet: false, t: 'Sin lluvia en las próximas 6 horas', s: maxPP >= 30 ? `Aun así, hasta un ${maxPP} % de probabilidad de algún chubasco` : 'Probabilidad de lluvia muy baja'};
+  let end = P.findIndex((v, i) => i > start && v < 0.05); const sum = P.slice(start, end < 0 ? undefined : end).reduce((x, y) => x + y, 0);
+  return {wet: true, t: `Lluvia a partir de las ${hhmm(T[start])}`, s: `${num(sum, 1)} mm${end > 0 ? ' hasta las ' + hhmm(T[end]) : ' en el resto del periodo'} · probabilidad máx. ${maxPP} %`};
 }
 function renderNow(j) {
   const c = j.current, d = j.daily, h = j.hourly;
+  const cur = c.time.slice(0, 13);
+  let i0 = h.time.findIndex(t => t.slice(0, 13) >= cur); if (i0 < 0) i0 = 0;
+  const nc = nowcast(j);
   $('#nowBox').style.background = `linear-gradient(150deg, ${tCol(c.temperature_2m)} -30%, var(--bg2) 70%)`;
   $('#nowBox').innerHTML = `${wx(c.weather_code, c.is_day)}
+    <div class="m" style="margin:0 0 4px">Ahora · ${hhmm(c.time)} h</div>
     <div class="t">${num(c.temperature_2m)}°</div>
     <div class="d">${esc(WMO[c.weather_code] || '')}</div>
     <div class="m">Sensación ${num(c.apparent_temperature)}° · Máx ${num(d.temperature_2m_max[0])}° · Mín ${num(d.temperature_2m_min[0])}°</div>
-    <div class="m">${esc(S.loc.name)}${S.loc.admin ? ', ' + esc(S.loc.admin) : ''} · ${num(S.loc.lat, 3)}, ${num(S.loc.lon, 3)} · ${j.elevation != null ? num(j.elevation) + ' m' : ''}</div>`;
-  const sr = d.sunrise[0]?.slice(11, 16), ss = d.sunset[0]?.slice(11, 16);
+    ${nc ? `<div class="cast${nc.wet ? ' wet' : ''}">${esc(nc.t)}<small>${esc(nc.s)}</small></div>` : ''}
+    <div class="m" style="margin-top:10px">${esc(S.loc.name)}${S.loc.admin ? ', ' + esc(S.loc.admin) : ''} · ${j.elevation != null ? num(j.elevation) + ' m' : ''}</div>`;
+  const p3 = i0 >= 3 ? h.pressure_msl[i0] - h.pressure_msl[i0 - 3] : null;
+  const trend = p3 == null ? '' : p3 > 0.8 ? 'subiendo' : p3 < -0.8 ? 'bajando' : 'estable';
+  const dl = d.daylight_duration?.[0];
+  const vis = c.visibility;
   $('#nowKv').innerHTML = [
-    ['Viento', `${arrow(c.wind_direction_10m)} ${num(c.wind_speed_10m)} km/h`],
-    ['Rachas', num(c.wind_gusts_10m) + ' km/h'],
-    ['Humedad', num(c.relative_humidity_2m) + ' %'],
-    ['Presión', num(c.pressure_msl) + ' hPa'],
-    ['Nubosidad', num(c.cloud_cover) + ' %'],
-    ['Precip. hoy', num(d.precipitation_sum[0], 1) + ' mm'],
-    ['UV máx.', num(d.uv_index_max[0], 1)],
-    ['Orto', sr || '–'], ['Ocaso', ss || '–']
-  ].map(([k, v]) => `<div><small>${k}</small><strong>${v}</strong></div>`).join('');
-  const cur = c.time.slice(0, 13);
-  let i0 = h.time.findIndex(t => t.slice(0, 13) >= cur); if (i0 < 0) i0 = 0;
+    ['Viento', `${arrow(c.wind_direction_10m)} ${num(c.wind_speed_10m)} km/h`, `del ${dirTxt(c.wind_direction_10m)} (${num(c.wind_direction_10m)}°)`],
+    ['Rachas', num(c.wind_gusts_10m) + ' km/h', ''],
+    ['Humedad', num(c.relative_humidity_2m) + ' %', `rocío ${num(c.dew_point_2m, 1)}°`],
+    ['Presión', num(c.pressure_msl) + ' hPa', p3 == null ? '' : `${trend} (${sgn(p3, 1)} en 3 h)`],
+    ['Nubes', num(c.cloud_cover) + ' %', `baja ${num(c.cloud_cover_low)} · media ${num(c.cloud_cover_mid)} · alta ${num(c.cloud_cover_high)}`],
+    ['Precip. ahora', num(c.precipitation, 1) + ' mm', `hoy ${num(d.precipitation_sum[0], 1)} mm`],
+    ['Radiación', num(c.shortwave_radiation) + ' W/m²', `UV ${num(c.uv_index, 1)} · máx. hoy ${num(d.uv_index_max[0], 1)}`],
+    ['Visibilidad', vis == null ? '–' : vis >= 10000 ? '> 10 km' : num(vis / 1000, 1) + ' km', ''],
+    ['Isocero', num(c.freezing_level_height) + ' m', c.cape > 50 ? `CAPE ${num(c.cape)} J/kg` : 'atmósfera estable'],
+    ['Sol', `${d.sunrise[0]?.slice(11, 16) || '–'} – ${d.sunset[0]?.slice(11, 16) || '–'}`, dl ? `${Math.floor(dl / 3600)} h ${Math.round(dl % 3600 / 60)} min de luz` : ''],
+    ['Lluvia 24 h', num(h.precipitation.slice(i0, i0 + 24).reduce((x, y) => x + (y || 0), 0), 1) + ' mm', `prob. máx. ${Math.max(0, ...h.precipitation_probability.slice(i0, i0 + 24).filter(v => v != null))} %`],
+    ['Temp. en 3 h', num(h.temperature_2m[i0 + 3]) + '°', `a las ${h.time[i0 + 3]?.slice(11, 13)} h`]
+  ].map(([k, v, s]) => `<div><small>${k}</small><strong>${v}</strong>${s ? `<em>${s}</em>` : ''}</div>`).join('');
+  // lluvia 15 min
+  const m = j.minutely_15;
+  if (m && m.precipitation && m.precipitation.some(v => v != null)) {
+    let k0 = m.time.findIndex(t => t >= c.time); if (k0 < 0) k0 = 0;
+    const T = m.time.slice(k0), P = m.precipitation.slice(k0), PP = m.precipitation_probability ? m.precipitation_probability.slice(k0) : [];
+    setChart('nowRain', {type: 'bar', data: {labels: T.map(hhmm), datasets: [
+      {type: 'line', label: 'Probabilidad %', data: PP, borderColor: '#f7e463', yAxisID: 'y1', borderWidth: 2},
+      {label: 'Lluvia mm/15 min', data: P, backgroundColor: '#4fc1c6', borderRadius: 3, yAxisID: 'y'}]},
+      options: {interaction: {mode: 'index', intersect: false}, plugins: {legend: {display: false}},
+        scales: {x: {grid: {display: false}, ticks: {maxTicksLimit: 7, maxRotation: 0}}, y: {beginAtZero: true, suggestedMax: 1, title: {display: true, text: 'mm'}}, y1: {position: 'right', min: 0, max: 100, grid: {display: false}, ticks: {callback: v => v + ' %'}}}}});
+    const s = (n) => P.slice(0, n).reduce((x, y) => x + (y || 0), 0);
+    $('#rainSum').innerHTML = [['Próxima hora', s(4)], ['Próximas 3 h', s(12)], ['Próximas 6 h', s(24)]].map(([k, v]) => `<div><small>${k}</small><strong>${num(v, 1)} mm</strong></div>`).join('');
+  } else { $('#rainSum').innerHTML = '<div class="note" style="grid-column:1/-1">Sin datos de 15 minutos para este punto.</div>'; }
+  // tira 48 h
   const idx = Array.from({length: 48}, (_, k) => i0 + k).filter(i => i < h.time.length);
   $('#hours').innerHTML = idx.map(i => {
     const t = h.temperature_2m[i], p = h.precipitation[i], pp = h.precipitation_probability[i];
@@ -138,6 +183,14 @@ function renderNow(j) {
       <div class="v">${num(t)}°</div><div class="p">${p >= 0.1 ? num(p, 1) + ' mm' : (pp ? pp + ' %' : '')}</div>
       <div class="w">${arrow(h.wind_direction_10m[i])}${num(h.wind_speed_10m[i])}</div></div>`;
   }).join('');
+  setChart('h48', {type: 'bar', data: {labels: idx.map(i => lblH(h.time[i])), datasets: [
+    {type: 'line', label: 'Temperatura °C', data: idx.map(i => h.temperature_2m[i]), borderColor: '#f59a3a', yAxisID: 'yt', borderWidth: 2.4,
+      segment: {borderColor: ctx => tCol(ctx.p1.parsed.y)}},
+    {type: 'line', label: 'Prob. lluvia %', data: idx.map(i => h.precipitation_probability[i]), borderColor: 'rgba(247,228,99,.7)', borderDash: [4, 4], borderWidth: 1.5, yAxisID: 'yp'},
+    {label: 'Lluvia mm', data: idx.map(i => h.precipitation[i]), backgroundColor: '#4fc1c6', borderRadius: 2, yAxisID: 'yr'}]},
+    options: {interaction: {mode: 'index', intersect: false}, plugins: {legend: {position: 'bottom', labels: {font: {size: 11}}}},
+      scales: {x: {ticks: xTicks(), grid: {display: false}}, yt: {position: 'left', title: {display: !narrow(), text: '°C'}}, yr: {position: 'right', beginAtZero: true, suggestedMax: 2, grid: {display: false}, title: {display: !narrow(), text: 'mm'}}, yp: {display: false, min: 0, max: 100}}}});
+  // 16 días
   const lo = Math.min(...d.temperature_2m_min.filter(v => v != null)), hi = Math.max(...d.temperature_2m_max.filter(v => v != null));
   const span = Math.max(1, hi - lo);
   $('#days').innerHTML = d.time.map((t, i) => {
@@ -149,6 +202,45 @@ function renderNow(j) {
       <div class="rng"><span>${num(mn)}°</span><div class="bar"><i style="left:${a}%;width:${Math.max(3, b - a)}%;background:linear-gradient(90deg,${tCol(mn)},${tCol(mx)})"></i></div><span>${num(mx)}°</span></div>
       <div class="pp">${d.precipitation_probability_max[i] != null ? d.precipitation_probability_max[i] + ' %' : ''}${d.precipitation_sum[i] >= 0.5 ? '<br>' + num(d.precipitation_sum[i], 1) + ' mm' : ''}</div></div>`;
   }).join('');
+}
+/* radar de la portada */
+let rvPromise = null, rvAt = 0;
+const rvData = () => { if (!rvPromise || Date.now() - rvAt > 5 * 60e3) { rvAt = Date.now(); rvPromise = getJSON('https://api.rainviewer.com/public/weather-maps.json').catch(e => { rvPromise = null; throw e; }); } return rvPromise; };
+let nowMap, nowMk, nowRv = [], nowFrames = [], nowIdx = 0, nowTimer = null;
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+function nowShow(i) {
+  nowRv.forEach((l, k) => { if (k === i) { if (!nowMap.hasLayer(l)) l.addTo(nowMap); l.setOpacity(.85); } else if (nowMap.hasLayer(l)) l.setOpacity(0); });
+  const f = nowFrames[i]; if (f) $('#nowRvTime').textContent = (i === nowFrames.length - 1 ? 'Último: ' : '') + new Date(f.time * 1000).toLocaleTimeString('es-ES', {hour: '2-digit', minute: '2-digit'});
+}
+function nowPlay(on) {
+  clearInterval(nowTimer); nowTimer = null;
+  $('#nowPlay').textContent = on ? '❚❚' : '▶';
+  if (!on || !nowFrames.length) { if (nowFrames.length) { nowIdx = nowFrames.length - 1; nowShow(nowIdx); } return; }
+  let hold = 0;
+  nowTimer = setInterval(() => {
+    if (nowIdx === nowFrames.length - 1 && hold++ < 3) return; hold = 0;
+    nowIdx = (nowIdx + 1) % nowFrames.length; nowShow(nowIdx);
+  }, 600);
+}
+async function initNowRadar() {
+  const ll = [S.loc.lat, S.loc.lon];
+  if (!nowMap) {
+    nowMap = L.map('nowMap', {zoomControl: false, scrollWheelZoom: false, attributionControl: true}).setView(ll, 8);
+    nowMap.createPane('labels'); nowMap.getPane('labels').style.zIndex = 650; nowMap.getPane('labels').style.pointerEvents = 'none';
+    const esri = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
+    L.tileLayer(esri + 'World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom: 14, attribution: '© Esri · Radar © RainViewer'}).addTo(nowMap);
+    L.tileLayer(esri + 'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {maxZoom: 14, pane: 'labels'}).addTo(nowMap);
+    nowMk = L.circleMarker(ll, {radius: 7, color: '#0b1433', weight: 2, fillColor: '#f7e463', fillOpacity: 1, pane: 'labels'}).addTo(nowMap);
+    L.control.zoom({position: 'topleft'}).addTo(nowMap);
+  } else { nowMap.invalidateSize(); nowMap.setView(ll, 8); nowMk.setLatLng(ll); }
+  try {
+    const j = await rvData();
+    nowRv.forEach(l => nowMap.removeLayer(l));
+    nowFrames = j.radar?.past || [];
+    nowRv = nowFrames.map(f => L.tileLayer(`${j.host}${f.path}/256/{z}/{x}/{y}/2/1_1.png`, {opacity: 0, maxNativeZoom: 7, maxZoom: 14, zIndex: 5}));
+    nowIdx = nowFrames.length - 1; nowShow(nowIdx);
+    if (!reduceMotion) { nowIdx = 0; nowPlay(true); } else nowPlay(false);
+  } catch (e) { $('#nowRvTime').textContent = 'Radar no disponible'; }
 }
 const AQI = [[20,'Buena','#4fc1c6'],[40,'Aceptable','#9be3b0'],[60,'Moderada','#f7e463'],[80,'Mala','#f59a3a'],[100,'Muy mala','#e8452c'],[1e9,'Extremadamente mala','#8e1236']];
 async function loadAQ() {
@@ -338,7 +430,7 @@ function initMap() {
 }
 async function loadRadar() {
   try {
-    const j = await getJSON('https://api.rainviewer.com/public/weather-maps.json');
+    const j = await rvData();
     rvFrames = (j.radar?.past || []);
     rvLayers = rvFrames.map(f => L.tileLayer(`${j.host}${f.path}/256/{z}/{x}/{y}/2/1_1.png`, {opacity: 0, maxNativeZoom: 7, maxZoom: 14, attribution: 'Radar © RainViewer', zIndex: 5}));
     rvIdx = rvFrames.length - 1;
@@ -590,7 +682,7 @@ function route(force) {
   document.querySelectorAll('nav.tabs a').forEach(a => a.toggleAttribute('aria-current', false) || (a.getAttribute('href') === '#' + v && a.setAttribute('aria-current', 'page')));
   if (!force && S.cur === v && S.loaded[v]) return;
   S.cur = v;
-  if (S.loaded[v]) { if (v === 'mapas' && map) setTimeout(() => map.invalidateSize(), 50); return; }
+  if (S.loaded[v]) { if (v === 'mapas' && map) setTimeout(() => map.invalidateSize(), 50); if (v === 'ahora' && nowMap) setTimeout(() => nowMap.invalidateSize(), 50); return; }
   S.loaded[v] = true;
   if (v === 'ahora') loadNow();
   if (v === 'modelos') { loadModels(); loadEnsemble(); }
@@ -629,6 +721,7 @@ $('#rvPlay').onclick = () => {
   $('#rvPlay').textContent = '❚❚';
   rvTimer = setInterval(() => { rvIdx = (rvIdx + 1) % rvFrames.length; showFrame(rvIdx); }, 650);
 };
+$('#nowPlay').onclick = () => nowPlay(!nowTimer);
 $('#wOverlay').addEventListener('click', e => { const b = e.target.closest('[data-w]'); if (!b) return; S.wOv = b.dataset.w; renderWindy(); });
 $('#wProd').addEventListener('click', e => { const b = e.target.closest('[data-p]'); if (!b) return; S.wProd = b.dataset.p; renderWindy(); });
 addEventListener('hashchange', () => route(false));
