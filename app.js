@@ -358,6 +358,38 @@ function renderWindy() {
   if ($('#windy').src !== u) $('#windy').src = u;
 }
 
+/* ---------- WXCharts (enlaces; la web no permite iframe) ---------- */
+const WXM = [['ecmwf_op','ECMWF HRES'],['ecmwf_eps','ECMWF ENS'],['gfs_op','GFS'],['gfs_ens','GEFS'],['ukmo gobal','UKMO'],['icon-eu','ICON-EU'],['arpege','ARPEGE'],['arome','AROME'],['gdps','GDPS (Canadá)']];
+const WXE = [['overview','Resumen'],['mslp','Presión (MSLP)'],['gh500','500 hPa'],['850temp','850 hPa temp.'],['850temp_anom','Anomalía 850 hPa'],['2m_tt','Temperatura 2 m'],['2mtemp_anom','Anomalía 2 m'],['2mdp','Punto de rocío'],['accprecip24','Precip. 24 h'],['accprecip','Precip. total'],['wind10mkph','Viento 10 m'],['gustkph','Rachas'],['cape','CAPE'],['convective_overview','Convección']];
+const WXR = [['spain','Iberia'],['pyrenees','Pirineos'],['Mediterranean','Mediterráneo'],['europe','Europa'],['EUR_NA','Europa y Atlántico N']];
+S.wx = store.get('atm.wx', {m: 'ecmwf_op', e: 'overview', r: 'spain'});
+const wxUrl = (m, e, r) => `https://wxcharts.com/?dataset=${encodeURIComponent(m)}&region=${encodeURIComponent(r)}&element=${encodeURIComponent(e)}&lat=${S.loc.lat.toFixed(3)}&lon=${S.loc.lon.toFixed(3)}`;
+function renderWx() {
+  const chips = (L, k) => L.map(([id, l]) => `<button class="chip" data-${k}="${esc(id)}" aria-pressed="${S.wx[k] === id}">${l}</button>`).join('');
+  $('#wxModel').innerHTML = chips(WXM, 'm');
+  $('#wxEl').innerHTML = chips(WXE, 'e');
+  $('#wxReg').innerHTML = chips(WXR, 'r');
+  const ml = WXM.find(x => x[0] === S.wx.m)[1], el = WXE.find(x => x[0] === S.wx.e)[1], rl = WXR.find(x => x[0] === S.wx.r)[1];
+  $('#wxGo').href = wxUrl(S.wx.m, S.wx.e, S.wx.r);
+  $('#wxGo').textContent = `Abrir ${ml} · ${el} · ${rl} ↗`;
+  const Q = [
+    ['ECMWF · presión y frentes', 'Europa y Atlántico N, para ver borrascas y anticiclones', 'ecmwf_op', 'mslp', 'EUR_NA'],
+    ['ECMWF · 500 hPa', 'Dorsales, vaguadas y DANAs sobre Europa', 'ecmwf_op', 'gh500', 'europe'],
+    ['GFS · 850 hPa', 'Masas de aire frías o cálidas sobre Iberia', 'gfs_op', '850temp', 'spain'],
+    ['ECMWF ENS · anomalía 850 hPa', 'Tendencia de la temperatura en altura', 'ecmwf_eps', '850temp_anom', 'europe'],
+    ['AROME · precipitación 24 h', 'Alta resolución para los próximos 2 días', 'arome', 'accprecip24', 'spain'],
+    ['ICON-EU · rachas', 'Temporales de viento en la Península', 'icon-eu', 'gustkph', 'spain'],
+    ['ARPEGE · CAPE', 'Potencial de tormentas', 'arpege', 'cape', 'spain'],
+    ['ECMWF · precipitación total', 'Lluvia acumulada en todo el periodo', 'ecmwf_op', 'accprecip', 'spain']
+  ];
+  $('#wxQuick').innerHTML = Q.map(([t, d, m, e, r]) => `<a href="${esc(wxUrl(m, e, r))}" target="_blank" rel="noopener"><strong>${t}</strong><span>${d}</span></a>`).join('');
+}
+$('#v-mapas').addEventListener('click', e => {
+  const b = e.target.closest('#wxModel [data-m], #wxEl [data-e], #wxReg [data-r]'); if (!b) return;
+  const k = b.dataset.m != null ? 'm' : b.dataset.e != null ? 'e' : 'r';
+  S.wx[k] = b.dataset[k]; store.set('atm.wx', S.wx); renderWx();
+});
+
 /* =========================================================
    CLIMA
    ========================================================= */
@@ -484,6 +516,7 @@ function renderLinks() {
   const G = [
     ['Predicción y modelos', [
       ['Windy', 'ECMWF, GFS, ICON, AROME: 50+ capas animadas', `https://www.windy.com/?${la},${lo},8`],
+      ['WXCharts', 'ECMWF, GFS, UKMO, ICON-EU, ARPEGE, AROME: mapas, meteogramas y ensembles', `https://wxcharts.com/?dataset=ecmwf_op&region=spain&element=overview&lat=${la}&lon=${lo}`],
       ['Ventusky', 'Mapas de modelos muy visuales y rápidos', `https://www.ventusky.com/?p=${la};${lo};7&l=temperature-2m`],
       ['Meteoblue multimodelo', 'Comparativa de modelos y meteogramas', 'https://www.meteoblue.com/es/tiempo/pronostico/multimodel'],
       ['ECMWF Charts', 'Productos oficiales del Centro Europeo (ENS, EFI, AIFS)', 'https://charts.ecmwf.int'],
@@ -552,7 +585,7 @@ function route(force) {
   S.loaded[v] = true;
   if (v === 'ahora') loadNow();
   if (v === 'modelos') { loadModels(); loadEnsemble(); }
-  if (v === 'mapas') { setTimeout(initMap, 30); renderWindy(); }
+  if (v === 'mapas') { setTimeout(initMap, 30); renderWindy(); renderWx(); }
   if (v === 'clima') loadClimate();
   if (v === 'visores') renderLinks();
 }
