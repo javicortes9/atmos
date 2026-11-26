@@ -27,6 +27,7 @@
 --c1:#3b4fd8;--c2:#4fc1c6;--c3:#f7e463;--c4:#e8452c;--acc:#f7e463;--r:16px;
 --st:env(safe-area-inset-top,0px);--sb:env(safe-area-inset-bottom,0px)}
 *{box-sizing:border-box;min-width:0}
+[hidden]{display:none!important}
 html{scroll-padding-top:90px;-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Red Hat Text",system-ui,sans-serif;overflow-x:clip;-webkit-tap-highlight-color:transparent}
 h1,h2,h3{font-family:"Red Hat Display",system-ui,sans-serif;line-height:1.08;margin:0;text-wrap:balance}
@@ -170,6 +171,20 @@ main{padding:0 0 calc(86px + var(--sb))}
 .act .hs{display:flex;height:12px;border-radius:6px;overflow:hidden;margin-top:12px;gap:1px}
 .act .hs span{flex:1}
 .act .hl{display:flex;justify-content:space-between;color:var(--mute);font-size:12px;margin-top:4px}
+.now{cursor:pointer}
+.now .more-btn{margin-top:14px;display:flex;align-items:center;justify-content:center;gap:8px;width:100%;border:1px solid rgba(255,255,255,.18);background:rgba(11,20,51,.45);border-radius:12px;min-height:44px;font-weight:700;color:var(--ink)}
+.now .more-btn span{transition:transform .25s}.now[aria-expanded=true] .more-btn span{transform:rotate(180deg)}
+.kv.more{margin-top:10px}
+.acts2{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+.a2{display:grid;grid-template-columns:58px minmax(0,1fr);gap:12px;align-items:start;background:var(--bg2);border:1px solid var(--line);border-radius:16px;padding:12px 14px}
+.a2 .sc{width:58px;height:58px;border-radius:50%;display:grid;place-items:center;color:#0b1433;text-align:center;line-height:1}
+.a2 .sc b{font:800 22px "Red Hat Display";display:block}.a2 .sc small{font-size:11px}
+.a2 h3{font-size:16px;display:flex;justify-content:space-between;gap:8px}
+.a2 h3 span{font:700 12px "Red Hat Text";padding:3px 9px;border-radius:999px;color:#0b1433;white-space:nowrap}
+.a2 .best{font:700 15px "Red Hat Display";margin-top:4px}
+.a2 .why{color:var(--mute);font-size:13px;margin-top:2px}
+.a2 .hs{display:flex;height:9px;border-radius:5px;overflow:hidden;margin-top:8px;gap:1px}.a2 .hs span{flex:1}
+.a2 .hl{display:flex;justify-content:space-between;color:var(--mute);font-size:11px;margin-top:3px}
 /* modelos */
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
 .heat td,.heat th{padding:8px 6px;text-align:center;font-size:14px;white-space:nowrap}
@@ -248,42 +263,35 @@ nav.tabs a[aria-current=page]{color:var(--acc)}
   <div class="band wrap">
     <p class="hello" id="hello"></p>
     <div id="rainAlert"></div>
-    <div class="hero">
-      <div class="now" id="nowBox"><div class="state">Cargando el tiempo actual…</div></div>
-      <div class="kv kv4" id="nowKv"></div>
-    </div>
+    <div class="now" id="nowBox" role="button" tabindex="0" aria-expanded="false" aria-controls="nowKv"><div class="state">Cargando el tiempo actual…</div></div>
+    <div class="kv kv4 more" id="nowKv" hidden></div>
+    <div class="card" style="margin-top:14px"><div class="row" style="justify-content:space-between"><h2>16 días</h2><span class="note" style="margin:0">Toca un día para verlo hora a hora</span></div><div class="days" id="days"></div></div>
   </div>
   <div class="band wrap" style="padding-top:0">
     <div class="grid2">
       <div class="card">
         <div class="row" style="justify-content:space-between"><h2>Radar en directo</h2><span class="note" id="nowRvTime" style="margin:0">—</span></div>
-        <p class="sub">Últimas 2 horas sobre imagen de satélite. Toca ▶ para pausar o reanudar.</p>
+        <p class="sub">Últimas 2 horas sobre imagen de satélite.</p>
         <div class="nowmap"><div id="nowMap"></div><button class="play nowplay" id="nowPlay" aria-label="Pausar radar">❚❚</button></div>
       </div>
       <div class="card">
         <h2>Lluvia, próximas 6 horas</h2>
-        <p class="sub">Cada 15 minutos (barras, mm) y probabilidad (línea). Modelos de alta resolución.</p>
+        <p class="sub">Cada 15 minutos (barras, mm) y probabilidad (línea).</p>
         <div class="fig" style="height:250px"><canvas id="nowRain"></canvas></div>
         <div class="rainsum" id="rainSum"></div>
       </div>
     </div>
   </div>
   <div class="band wrap" style="padding-top:0">
-    <h2>Mejores momentos para salir</h2>
-    <p class="sub">Calculado con temperatura, lluvia, viento, sol, UV y calidad del aire de las próximas 36 horas. La franja de colores muestra cada hora: cuanto más verde, mejor.</p>
-    <div class="acts" id="acts"></div>
+    <h2>¿Es buen momento para…?</h2>
+    <p class="sub">Nota de 0 a 100 para ahora mismo y el mejor hueco de las próximas 36 horas, calculados con temperatura, sensación, lluvia (pasada y prevista), viento, rachas, humedad, nubes, sol, UV, visibilidad, suelo, evapotranspiración y calidad del aire.</p>
+    <div class="chips" id="catChips"></div>
+    <div class="acts2" id="acts"></div>
   </div>
   <div class="band wrap" style="padding-top:0">
     <h2>Próximas 48 horas</h2>
-    <p class="sub">Desliza la tira; debajo, temperatura, lluvia y su probabilidad en una sola gráfica.</p>
     <div class="strip" id="hours"></div>
     <div class="card" style="margin-top:12px"><div class="fig" style="height:260px"><canvas id="h48"></canvas></div></div>
-  </div>
-  <div class="band wrap" style="padding-top:0">
-    <div class="grid2">
-      <div class="card"><h2>16 días</h2><p class="sub">Toca un día para ver su detalle hora a hora.</p><div class="days" id="days"></div></div>
-      <div class="card"><h2>Aire, polvo y polen</h2><p class="sub">Copernicus CAMS · índice europeo de calidad del aire.</p><div class="aq" id="aq"></div><div class="fig" style="height:220px;margin-top:14px"><canvas id="aqChart"></canvas></div></div>
-    </div>
   </div>
 </section>
 
@@ -315,13 +323,6 @@ nav.tabs a[aria-current=page]{color:var(--acc)}
 <!-- MAPAS -->
 <section class="view" id="v-mapas">
   <div class="band wrap">
-    <h2>Radar y satélite</h2>
-    <p class="sub">Radar de precipitación de las últimas 2 h (RainViewer) sobre imagen de satélite, nubes reales de ayer (NASA) y mapa topográfico. Toca el mapa para consultar ese punto.</p>
-    <div class="chips" id="layerChips"></div>
-    <div id="map"></div>
-    <div class="mapbar"><button class="play" id="rvPlay" aria-label="Reproducir radar">▶</button><span id="rvtime">—</span></div>
-  </div>
-  <div class="band wrap" style="padding-top:0">
     <h2>Windy: campos de los modelos</h2>
     <p class="sub">Mapas animados de Windy con su meteograma debajo. Elige capa y modelo.</p>
     <div class="chips" id="wOverlay"></div>
@@ -417,6 +418,6 @@ nav.tabs a[aria-current=page]{color:var(--acc)}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="app.js?v=10"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>

@@ -96,7 +96,7 @@ async function loadNow() {
   const u = `https://api.open-meteo.com/v1/forecast?${LL()}&timezone=auto&forecast_days=16&past_hours=24` +
     '&current=temperature_2m,apparent_temperature,relative_humidity_2m,dew_point_2m,weather_code,is_day,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl,precipitation,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,uv_index,shortwave_radiation,freezing_level_height,cape' +
     '&minutely_15=precipitation,precipitation_probability&forecast_minutely_15=24' +
-    '&hourly=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,precipitation_probability,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,is_day,pressure_msl,cloud_cover,uv_index,shortwave_radiation' +
+    '&hourly=temperature_2m,apparent_temperature,relative_humidity_2m,dew_point_2m,precipitation,precipitation_probability,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,is_day,pressure_msl,cloud_cover,uv_index,shortwave_radiation,visibility,soil_moisture_3_to_9cm,soil_temperature_6cm,et0_fao_evapotranspiration,vapour_pressure_deficit' +
     '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,sunrise,sunset,uv_index_max,daylight_duration';
   try {
     const j = await getJSON(u);
@@ -153,7 +153,9 @@ function renderNow(j) {
     ${nc ? `<div class="cast${nc.wet ? ' wet' : ''}">${esc(nc.t)}<small>${esc(nc.s)}</small></div>` : ''}
     ${yd}
     <div class="m" style="margin-top:10px;color:var(--ink)">${esc(todaySum)}</div>
-    <div class="m" style="margin-top:10px">${esc(S.loc.name)}${S.loc.admin ? ', ' + esc(S.loc.admin) : ''} · ${j.elevation != null ? num(j.elevation) + ' m' : ''}</div>`;
+    <div class="m" style="margin-top:10px">${esc(S.loc.name)}${S.loc.admin ? ', ' + esc(S.loc.admin) : ''} · ${j.elevation != null ? num(j.elevation) + ' m' : ''}</div>
+    <div class="more-btn">${$('#nowKv').hidden ? 'Ver todos los datos del momento' : 'Ocultar datos'} <span>▾</span></div>`;
+  $('#nowBox').setAttribute('aria-expanded', String(!$('#nowKv').hidden));
   const p3 = i0 >= 3 ? h.pressure_msl[i0] - h.pressure_msl[i0 - 3] : null;
   const trend = p3 == null ? '' : p3 > 0.8 ? 'subiendo' : p3 < -0.8 ? 'bajando' : 'estable';
   const dl = d.daylight_duration?.[0];
@@ -247,45 +249,81 @@ function renderAlert(j) {
 }
 setInterval(() => { if (S.lastNow && S.cur === 'ahora') renderAlert(S.lastNow); }, 30e3);
 
-/* ---------- mejores momentos para salir ---------- */
+/* ---------- ¿es buen momento para…? ---------- */
 const tri = (v, lo, hi, soft) => v == null ? 0.5 : v >= lo && v <= hi ? 1 : Math.max(0, 1 - (v < lo ? lo - v : v - hi) / soft);
-const ACTS = [
-  {k: 'run', l: 'Correr o caminar', dur: 2, hrs: [7, 22], ico: '<circle cx="26" cy="7" r="3.5"/><path d="M17 18l6-5 5 4 5 1M23 13l-3 10 6 5-2 9M20 23l-6 4-4-2"/>',
-    f: (x) => 100 * tri(x.at, 7, 18, 10) * x.dry * (0.6 + 0.4 * tri(x.ws, 0, 20, 20)) * (0.7 + 0.3 * tri(x.uv, 0, 6, 4)) * (0.6 + 0.4 * tri(x.aq, 0, 40, 40)),
-    why: x => `${num(x.at)}° de sensación, ${x.ws < 12 ? 'poco viento' : 'algo de viento'}${x.aq != null ? (x.aq <= 40 ? ', aire limpio' : ', aire regular') : ''}`},
-  {k: 'bike', l: 'Ir en bici', dur: 2, hrs: [8, 20], ico: '<circle cx="10" cy="28" r="7"/><circle cx="30" cy="28" r="7"/><path d="M10 28l7-12h9l4 12M17 16l5 12h8M14 11h6"/>',
-    f: (x) => 100 * tri(x.at, 12, 24, 10) * x.dry * tri(Math.max(x.ws, x.gu * 0.7), 0, 15, 20),
-    why: x => `${num(x.at)}°, viento ${num(x.ws)} km/h${x.gu > 35 ? ` y rachas de ${num(x.gu)}` : ''}`},
-  {k: 'ropa', l: 'Tender la ropa', dur: 3, hrs: [8, 19], ico: '<path d="M3 8h34"/><path d="M9 8l-4 6 4 2v14h12V16l4-2-4-6"/><path d="M27 8v18M23 8l4 4 4-4"/>',
-    f: (x) => x.p >= 0.1 || x.pp >= 35 || !x.day ? 0 : 100 * (0.35 + 0.65 * Math.min(1, x.rad / 550)) * (0.45 + 0.55 * tri(x.rh, 0, 60, 35)) * (0.7 + 0.3 * tri(x.ws, 6, 25, 15)),
-    why: x => `${x.rad > 350 ? 'sol' : 'algo de sol'}, humedad del ${num(x.rh)} %${x.ws >= 8 ? ' y brisa' : ''}`},
-  {k: 'terraza', l: 'Terraza o paseo', dur: 2, hrs: [11, 23], ico: '<path d="M6 16h28l-4-8H10z"/><path d="M20 16v18M12 34h16M9 22h22"/>',
-    f: (x) => 100 * tri(x.at, 18, 27, 8) * x.dry * tri(x.ws, 0, 15, 15) * (1 - (x.cc || 0) / 250),
-    why: x => `${num(x.at)}° de sensación, ${x.cc < 30 ? 'cielo despejado' : x.cc < 70 ? 'nubes y claros' : 'nublado'}`}
+const wlab = ws => ws < 8 ? 'sin apenas viento' : ws < 20 ? `viento flojo (${num(ws)} km/h)` : ws < 35 ? `viento moderado (${num(ws)} km/h)` : `viento fuerte (${num(ws)} km/h)`;
+const rlab = x => x.p >= 0.2 ? 'lloviendo' : x.pn6 >= 1 ? `lluvia prevista (${num(x.pn6, 1)} mm en 6 h)` : 'sin lluvia';
+const CATS = [
+  {k: 'dep', l: 'Deporte', a: [
+    {l: 'Correr', dur: 1, hrs: [6, 23], f: x => tri(x.at, 6, 17, 10) * x.dry * (0.55 + 0.45 * tri(x.ws, 0, 20, 20)) * (0.7 + 0.3 * tri(x.uv, 0, 6, 4)) * (0.6 + 0.4 * tri(x.aq, 0, 40, 40)) * (0.8 + 0.2 * tri(x.rh, 30, 75, 25)), why: x => `${num(x.at)}° de sensación, ${wlab(x.ws)}${x.aq != null ? (x.aq <= 40 ? ', aire limpio' : ', aire regular') : ''}`},
+    {l: 'Caminar', dur: 2, hrs: [7, 23], f: x => tri(x.at, 9, 24, 10) * x.dry * (0.6 + 0.4 * tri(x.ws, 0, 25, 20)) * (0.75 + 0.25 * tri(x.uv, 0, 6, 4)), why: x => `${num(x.at)}° de sensación, ${rlab(x)}`},
+    {l: 'Bicicleta', dur: 2, hrs: [7, 21], f: x => tri(x.at, 11, 25, 10) * x.dry * tri(Math.max(x.ws, x.gu * 0.7), 0, 15, 20) * (x.pp6 > 1 ? 0.6 : 1), why: x => `${num(x.at)}°, ${wlab(x.ws)}${x.pp6 > 1 ? ', firme mojado' : ''}`},
+    {l: 'Senderismo y montaña', dur: 4, hrs: [7, 19], f: x => !x.day ? 0 : tri(x.at, 8, 22, 10) * (x.pn6 >= 1 ? 0.2 : x.dry) * tri(x.gu, 0, 40, 30) * (0.7 + 0.3 * tri(x.vis, 20000, 1e9, 15000)) * (0.75 + 0.25 * tri(x.uv, 0, 6, 4)), why: x => `${num(x.at)}°, rachas de ${num(x.gu)} km/h, visibilidad ${x.vis == null ? '–' : x.vis >= 20000 ? 'buena' : num(x.vis / 1000) + ' km'}`},
+    {l: 'Pádel y tenis', dur: 2, hrs: [8, 23], f: x => tri(x.at, 12, 27, 9) * x.dry * tri(x.gu, 0, 20, 15) * (x.pp6 > 0.3 ? 0.3 : 1), why: x => `${num(x.at)}°, rachas de ${num(x.gu)} km/h${x.pp6 > 0.3 ? ', pista probablemente mojada' : ''}`},
+    {l: 'Golf', dur: 4, hrs: [8, 19], f: x => !x.day ? 0 : tri(x.at, 12, 26, 9) * x.dry * tri(x.ws, 0, 18, 15), why: x => `${num(x.at)}°, ${wlab(x.ws)}`},
+    {l: 'Nadar al aire libre', dur: 2, hrs: [10, 20], f: x => !x.day ? 0 : tri(x.t, 26, 34, 6) * x.dry * tri(x.ws, 0, 20, 15) * (1 - (x.cc || 0) / 200) * (0.6 + 0.4 * tri(x.uv, 0, 8, 4)), why: x => `${num(x.t)}°, ${x.cc < 30 ? 'sol' : 'nubes'}, UV ${num(x.uv)}`}
+  ]},
+  {k: 'campo', l: 'Agricultura', a: [
+    {l: 'Siembra', dur: 3, hrs: [8, 19], f: x => !x.day ? 0 : tri(x.sm, 0.15, 0.32, 0.1) * tri(x.st, 10, 28, 6) * (x.pn24 >= 15 ? 0.3 : 1) * (x.p >= 0.2 ? 0.1 : 1), why: x => `tempero ${x.sm == null ? '–' : x.sm < 0.15 ? 'seco' : x.sm > 0.32 ? 'encharcado' : 'adecuado'} (${num(x.sm, 2)} m³/m³), suelo a ${num(x.st)}°`},
+    {l: 'Recolección y cosecha', dur: 4, hrs: [7, 21], f: x => !x.day ? 0 : (x.pp6 >= 0.5 || x.p >= 0.1 ? 0 : 1) * tri(x.rh, 0, 65, 25) * tri(x.at, 8, 30, 8) * (x.pn6 >= 0.5 ? 0.4 : 1), why: x => `humedad del ${num(x.rh)} %, ${x.pp6 >= 0.5 ? 'llovió hace poco' : 'cultivo seco'}, ${rlab(x)}`},
+    {l: 'Tratamientos fitosanitarios', dur: 2, hrs: [6, 22], f: x => tri(x.ws, 3, 10, 6) * tri(x.gu, 0, 20, 10) * (x.pn6 >= 0.3 ? 0.1 : 1) * tri(x.t, 8, 25, 6) * tri(x.rh, 50, 90, 25), why: x => `${wlab(x.ws)}, ${num(x.t)}°, humedad del ${num(x.rh)} %, ${x.pn6 >= 0.3 ? 'lluvia que lavaría el producto' : 'sin lluvia en 6 h'}`},
+    {l: 'Riego', dur: 2, hrs: [5, 24], f: x => (x.pn24 >= 5 ? 0.1 : 1) * tri(x.sm, 0, 0.22, 0.12) * (0.4 + 0.6 * tri(x.rad, 0, 50, 300)) * tri(x.ws, 0, 12, 15), why: x => `suelo ${x.sm == null ? '–' : x.sm < 0.18 ? 'seco' : 'con humedad'}, ${x.pn24 >= 5 ? 'lloverá pronto' : 'sin lluvia útil en 24 h'}, ET₀ ${num(x.et0d, 1)} mm/día`},
+    {l: 'Laboreo y arado', dur: 4, hrs: [8, 19], f: x => !x.day ? 0 : tri(x.sm, 0.14, 0.28, 0.08) * (x.p >= 0.1 ? 0 : 1) * (x.pp6 >= 2 ? 0.3 : 1), why: x => `tempero ${x.sm == null ? '–' : x.sm < 0.14 ? 'demasiado seco' : x.sm > 0.28 ? 'demasiado húmedo' : 'bueno'}`},
+    {l: 'Abonado', dur: 2, hrs: [8, 19], f: x => !x.day ? 0 : (x.pn24 >= 20 ? 0.2 : x.pn24 >= 2 ? 1 : 0.7) * tri(x.ws, 0, 15, 15) * (x.p >= 0.2 ? 0.2 : 1), why: x => x.pn24 >= 20 ? 'riesgo de lavado por lluvia fuerte' : x.pn24 >= 2 ? `lluvia ligera prevista (${num(x.pn24, 1)} mm) que ayuda a incorporarlo` : 'sin lluvia que lo incorpore'}
+  ]},
+  {k: 'casa', l: 'Tareas de casa', a: [
+    {l: 'Tender la ropa', dur: 3, hrs: [8, 19], f: x => x.p >= 0.1 || x.pp >= 35 || !x.day ? 0 : (0.35 + 0.65 * Math.min(1, x.rad / 550)) * (0.45 + 0.55 * tri(x.rh, 0, 60, 35)) * (0.7 + 0.3 * tri(x.ws, 6, 25, 15)), why: x => `${x.rad > 350 ? 'sol' : 'algo de sol'}, humedad del ${num(x.rh)} %${x.ws >= 8 ? ' y brisa' : ''}`},
+    {l: 'Lavar el coche', dur: 2, hrs: [9, 20], f: x => !x.day ? 0 : (x.pn24 >= 0.5 ? 0.1 : 1) * tri(x.t, 8, 26, 8) * tri(x.rad, 0, 600, 300), why: x => x.pn24 >= 0.5 ? `lloverá en las próximas 24 h (${num(x.pn24, 1)} mm)` : `seco 24 h, ${num(x.t)}°`},
+    {l: 'Ventilar la casa', dur: 1, hrs: [7, 23], f: x => tri(x.t, 14, 25, 8) * x.dry * tri(x.aq, 0, 40, 40) * tri(x.rh, 20, 75, 20), why: x => `${num(x.t)}° fuera${x.aq != null ? `, aire ${x.aq <= 40 ? 'limpio' : 'regular'}` : ''}`},
+    {l: 'Regar el jardín', dur: 1, hrs: [6, 24], f: x => (x.pn24 >= 3 ? 0.1 : 1) * (0.3 + 0.7 * tri(x.rad, 0, 30, 250)) * tri(x.ws, 0, 12, 12) * (0.5 + 0.5 * Math.min(1, x.et0d / 4)), why: x => `${x.rad < 50 ? 'sin sol directo' : 'con sol'}, ET₀ ${num(x.et0d, 1)} mm/día${x.pn24 >= 3 ? ', lloverá pronto' : ''}`},
+    {l: 'Pintar o trabajos exteriores', dur: 3, hrs: [9, 19], f: x => !x.day ? 0 : tri(x.t, 10, 27, 7) * tri(x.rh, 0, 70, 20) * (x.pn6 >= 0.2 ? 0 : 1) * tri(x.ws, 0, 20, 15) * (x.t - x.td >= 3 ? 1 : 0.3), why: x => `${num(x.t)}°, humedad del ${num(x.rh)} %, ${rlab(x)}`}
+  ]},
+  {k: 'ocio', l: 'Salir y ocio', a: [
+    {l: 'Terraza y bares', dur: 2, hrs: [12, 24], f: x => tri(x.at, 17, 27, 8) * x.dry * tri(x.ws, 0, 15, 15) * (1 - (x.cc || 0) / 300), why: x => `${num(x.at)}° de sensación, ${x.cc < 30 ? 'cielo despejado' : x.cc < 70 ? 'nubes y claros' : 'nublado'}`},
+    {l: 'Dar un paseo', dur: 1, hrs: [8, 24], f: x => tri(x.at, 12, 25, 10) * x.dry * tri(x.ws, 0, 22, 18), why: x => `${num(x.at)}° de sensación, ${rlab(x)}`},
+    {l: 'Playa', dur: 3, hrs: [10, 20], f: x => !x.day ? 0 : tri(x.t, 25, 33, 6) * x.dry * tri(x.ws, 0, 20, 15) * (1 - (x.cc || 0) / 180), why: x => `${num(x.t)}°, ${wlab(x.ws)}, UV ${num(x.uv)}`},
+    {l: 'Picnic o barbacoa', dur: 3, hrs: [11, 22], f: x => tri(x.at, 18, 28, 7) * (x.pn6 >= 0.2 ? 0 : 1) * tri(x.ws, 0, 15, 12) * tri(x.uv, 0, 7, 4), why: x => `${num(x.at)}°, ${wlab(x.ws)}`},
+    {l: 'Fotografía (hora dorada)', dur: 1, hrs: [0, 24], f: x => x.gold ? tri(x.cc, 15, 60, 35) * x.dry * (0.7 + 0.3 * tri(x.vis, 20000, 1e9, 15000)) : 0, why: x => `${x.cc < 15 ? 'cielo limpio' : x.cc <= 60 ? 'nubes que darán color' : 'muy nublado'}, junto al ${x.gold}`},
+    {l: 'Ver las estrellas', dur: 2, hrs: [0, 24], f: x => x.day ? 0 : tri(x.cc, 0, 10, 40) * tri(x.rh, 0, 75, 25) * x.dry, why: x => `nubes ${num(x.cc)} %, humedad del ${num(x.rh)} %`},
+    {l: 'Volar un dron', dur: 1, hrs: [8, 20], f: x => !x.day ? 0 : tri(x.gu, 0, 25, 15) * x.dry * tri(x.vis, 5000, 1e9, 4000) * tri(x.t, 0, 40, 5), why: x => `rachas de ${num(x.gu)} km/h, ${rlab(x)}`}
+  ]}
 ];
-const QL = s => s >= 75 ? ['Ideal', '#9be3b0'] : s >= 50 ? ['Buena', '#4fc1c6'] : s >= 30 ? ['Regular', '#f7e463'] : ['Poco recomendable', '#f59a3a'];
+S.cat = store.get('atm.cat', 'dep');
+const QL = s => s >= 75 ? ['Ideal', '#9be3b0'] : s >= 55 ? ['Buena', '#4fc1c6'] : s >= 35 ? ['Regular', '#f7e463'] : ['Mala', '#f59a3a'];
+const scCol = v => scaleCol(v / 100, [[0, '#e8452c'], [.3, '#f59a3a'], [.5, '#f7e463'], [.75, '#4fc1c6'], [1, '#9be3b0']]);
 function renderActs(j) {
-  const h = j.hourly, cur = j.current.time.slice(0, 13);
+  const h = j.hourly, d = j.daily, cur = j.current.time.slice(0, 13);
   let i0 = h.time.findIndex(t => t.slice(0, 13) >= cur); if (i0 < 0) i0 = 0;
   const I = Array.from({length: 36}, (_, k) => i0 + k).filter(i => i < h.time.length);
-  const X = i => ({at: h.apparent_temperature[i], ws: h.wind_speed_10m[i] || 0, gu: h.wind_gusts_10m[i] || 0, p: h.precipitation[i] || 0, pp: h.precipitation_probability[i] || 0, uv: h.uv_index[i], rh: h.relative_humidity_2m[i], rad: h.shortwave_radiation[i] || 0, cc: h.cloud_cover[i], day: h.is_day[i], aq: S.aqH ? S.aqH[h.time[i]] : null,
+  const P = h.precipitation;
+  const win = (i, a, b) => { let s = 0; for (let k = i + a; k <= i + b; k++) if (k >= 0 && k < P.length) s += P[k] || 0; return s; };
+  const et0day = {}; h.time.forEach((t, k) => { const dd = t.slice(0, 10); et0day[dd] = (et0day[dd] || 0) + (h.et0_fao_evapotranspiration?.[k] || 0); });
+  const golden = i => { const t = h.time[i], dd = t.slice(0, 10), di = d.time.indexOf(dd); if (di < 0) return ''; const H = +t.slice(11, 13) + 0.5; const sr = d.sunrise[di], ss = d.sunset[di]; const hm = s => +s.slice(11, 13) + +s.slice(14, 16) / 60; if (Math.abs(H - hm(sr)) <= 1) return 'amanecer'; if (Math.abs(H - hm(ss)) <= 1) return 'atardecer'; return ''; };
+  const X = i => ({t: h.temperature_2m[i], at: h.apparent_temperature[i], td: h.dew_point_2m?.[i], ws: h.wind_speed_10m[i] || 0, gu: h.wind_gusts_10m[i] || 0, p: P[i] || 0, pp: h.precipitation_probability[i] || 0,
+    uv: h.uv_index[i] || 0, rh: h.relative_humidity_2m[i], rad: h.shortwave_radiation[i] || 0, cc: h.cloud_cover[i] || 0, day: h.is_day[i], vis: h.visibility?.[i], sm: h.soil_moisture_3_to_9cm?.[i], st: h.soil_temperature_6cm?.[i],
+    et0d: et0day[h.time[i].slice(0, 10)] || 0, pn6: win(i, 1, 6), pn24: win(i, 1, 24), pp6: win(i, -6, 0), gold: golden(i), aq: S.aqH ? S.aqH[h.time[i]] : null,
     get dry() { return this.p >= 0.2 ? 0 : this.p >= 0.05 ? 0.4 : 1 - Math.max(0, this.pp - 20) / 100; }});
+  const XS = I.map(X);
   const today = j.current.time.slice(0, 10);
-  const dayW = t => t.startsWith(today) ? 'Hoy' : 'Mañana';
-  $('#acts').innerHTML = ACTS.map(a => {
-    const sc = I.map(i => { const hh = +h.time[i].slice(11, 13); return hh >= a.hrs[0] && hh < a.hrs[1] ? Math.round(a.f(X(i))) : 0; });
+  const dayW = t => t.startsWith(today) ? 'hoy' : 'mañana';
+  const cat = CATS.find(c => c.k === S.cat) || CATS[0];
+  $('#catChips').innerHTML = CATS.map(c => `<button class="chip" data-cat="${c.k}" aria-pressed="${c.k === cat.k}">${c.l}</button>`).join('');
+  $('#acts').innerHTML = cat.a.map(a => {
+    const sc = XS.map((x, k) => { const hh = +h.time[I[k]].slice(11, 13); return hh >= a.hrs[0] && hh < a.hrs[1] ? Math.round(100 * Math.max(0, Math.min(1, a.f(x)))) : 0; });
     let best = -1, bi = -1;
-    for (let k = 0; k + a.dur <= sc.length; k++) { const w = sc.slice(k, k + a.dur); if (w.some(v => v === 0)) continue; const m = w.reduce((x, y) => x + y, 0) / a.dur; if (m > best + 2) { best = m; bi = k; } }
-    const [ql, qc] = bi < 0 ? ['Sin buen momento', '#f59a3a'] : QL(best);
+    for (let k = 0; k + a.dur <= sc.length; k++) { const w = sc.slice(k, k + a.dur); if (w.some(v => v === 0)) continue; const m = w.reduce((s, v) => s + v, 0) / a.dur; if (m > best + 2) { best = m; bi = k; } }
+    const now = sc[0], [qn, qc] = QL(now);
     const t0 = bi < 0 ? null : h.time[I[bi]], t1 = bi < 0 ? null : h.time[I[bi + a.dur - 1]];
-    const mid = bi < 0 ? null : X(I[bi + Math.floor(a.dur / 2)]);
-    const strip = sc.map((v, k) => `<span title="${h.time[I[k]].slice(11, 13)} h" style="background:${v === 0 ? 'rgba(255,255,255,.06)' : scaleCol(v / 100, [[0, '#e8452c'], [.3, '#f59a3a'], [.5, '#f7e463'], [.75, '#4fc1c6'], [1, '#9be3b0']])}${k === bi ? ';outline:2px solid #fff;outline-offset:-1px' : ''}"></span>`).join('');
-    return `<div class="act"><div class="top"><svg class="ai" viewBox="0 0 40 40">${a.ico}</svg><h3>${a.l}</h3><span class="q" style="background:${qc}">${ql}</span></div>
-      <div class="when">${bi < 0 ? 'No hay un buen hueco en 36 h' : `${dayW(t0)}, de ${t0.slice(11, 13)} a ${String(+t1.slice(11, 13) + 1).padStart(2, '0')} h`}</div>
-      <div class="why">${bi < 0 ? 'Lluvia, viento o temperaturas poco agradables' : esc(a.why(mid))}</div>
-      <div class="hs">${strip}</div><div class="hl"><span>ahora</span><span>+12 h</span><span>+24 h</span><span>+36 h</span></div></div>`;
+    const bestTxt = bi < 0 || best < 35 ? 'Sin buen hueco en las próximas 36 h' : bi === 0 && best - now < 5 ? `Ahora es buen momento · ${QL(best)[0].toLowerCase()}` : `Mejor ${dayW(t0)} de ${t0.slice(11, 13)} a ${String((+t1.slice(11, 13) + 1) % 24).padStart(2, '0')} h · ${QL(best)[0].toLowerCase()}`;
+    const ref = bi < 0 ? XS[0] : XS[bi];
+    return `<div class="a2"><div class="sc" style="background:${scCol(now)}"><div><b>${now}</b><small>${qn.toLowerCase()}</small></div></div><div>
+      <h3>${a.l}</h3>
+      <div class="best">${bestTxt}</div><div class="why">${esc(a.why(ref))}</div>
+      <div class="hs">${sc.map((v, k) => `<span style="background:${v === 0 ? 'rgba(255,255,255,.06)' : scCol(v)}${bi >= 0 && best >= 35 && k >= bi && k < bi + a.dur ? ';box-shadow:inset 0 -3px #fff' : ''}"></span>`).join('')}</div>
+      <div class="hl"><span>ahora</span><span>+12 h</span><span>+24 h</span><span>+36 h</span></div></div></div>`;
   }).join('');
 }
+$('#catChips').addEventListener('click', e => { const b = e.target.closest('[data-cat]'); if (!b) return; S.cat = b.dataset.cat; store.set('atm.cat', S.cat); if (S.lastNow) renderActs(S.lastNow); });
 
 /* ---------- frase-resumen de un día ---------- */
 function daySummary(H, ids) {
@@ -452,29 +490,12 @@ async function initNowRadar() {
 }
 const AQI = [[20,'Buena','#4fc1c6'],[40,'Aceptable','#9be3b0'],[60,'Moderada','#f7e463'],[80,'Mala','#f59a3a'],[100,'Muy mala','#e8452c'],[1e9,'Extremadamente mala','#8e1236']];
 async function loadAQ() {
-  const box = $('#aq');
-  box.innerHTML = '<div class="state">Cargando…</div>';
+  // solo se usa para calcular la idoneidad de las actividades
   try {
-    const j = await getJSON(`https://air-quality-api.open-meteo.com/v1/air-quality?${LL()}&timezone=auto&forecast_days=4&hourly=european_aqi,pm2_5,pm10,dust,uv_index,ozone,olive_pollen,grass_pollen,birch_pollen`);
-    const h = j.hourly, now = new Date();
-    S.aqH = {}; h.time.forEach((t, k) => S.aqH[t] = h.european_aqi[k]);
+    const j = await getJSON(`https://air-quality-api.open-meteo.com/v1/air-quality?${LL()}&timezone=auto&forecast_days=3&hourly=european_aqi`);
+    S.aqH = {}; j.hourly.time.forEach((t, k) => S.aqH[t] = j.hourly.european_aqi[k]);
     if (S.lastNow) renderActs(S.lastNow);
-    const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}T${String(now.getHours()).padStart(2, '0')}`;
-    let i = h.time.findIndex(t => t.slice(0, 13) >= stamp); if (i < 0) i = 0;
-    const aqi = h.european_aqi[i], cat = AQI.find(a => (aqi ?? 0) <= a[0]);
-    const pol = (k, l) => h[k] && h[k].some(v => v > 0) ? [l, num(Math.max(...h[k].slice(i, i + 24).map(v => v || 0))) + ' granos/m³', 'máx. 24 h'] : null;
-    const items = [
-      ['Índice europeo', num(aqi), cat ? cat[1] : '', cat ? cat[2] : null],
-      ['PM2,5', num(h.pm2_5[i]) + ' µg/m³', ''], ['PM10', num(h.pm10[i]) + ' µg/m³', ''],
-      ['Polvo sahariano', num(h.dust[i]) + ' µg/m³', ''], ['Ozono', num(h.ozone[i]) + ' µg/m³', ''], ['Índice UV', num(h.uv_index[i], 1), ''],
-      pol('olive_pollen', 'Polen de olivo'), pol('grass_pollen', 'Polen de gramíneas'), pol('birch_pollen', 'Polen de abedul')
-    ].filter(Boolean);
-    box.innerHTML = items.map(([k, v, s, col]) => `<div${col ? ` style="background:${col};color:#0b1433"` : ''}><small${col ? ' style="color:#0b1433"' : ''}>${k}</small><strong>${v}</strong>${s ? `<small${col ? ' style="color:#0b1433"' : ''}>${s}</small>` : ''}</div>`).join('');
-    setChart('aqChart', {type: 'line', data: {labels: h.time.map(lblH), datasets: [
-      {label: 'Índice europeo', data: h.european_aqi, borderColor: '#f7e463', yAxisID: 'y'},
-      {label: 'Polvo µg/m³', data: h.dust, borderColor: '#f59a3a', borderDash: [4, 3], yAxisID: 'y1'}]},
-      options: {interaction: {mode: 'index', intersect: false}, scales: {x: {ticks: xTicks(), grid: {display: false}}, y: {beginAtZero: true}, y1: {position: 'right', beginAtZero: true, grid: {display: false}}}}});
-  } catch (e) { box.innerHTML = `<div class="state err">Calidad del aire no disponible: ${esc(e.message)}</div>`; }
+  } catch (e) { S.aqH = null; }
 }
 
 /* =========================================================
@@ -607,59 +628,6 @@ async function loadEnsemble() {
 /* =========================================================
    MAPAS
    ========================================================= */
-let map, marker, rvFrames = [], rvLayers = [], rvIdx = 0, rvTimer = null, BL = {};
-const LAYERS = [{id: 'radar', l: 'Radar sobre satélite'}, {id: 'sat', l: 'Nubes de ayer (NASA)'}, {id: 'topo', l: 'Mapa topográfico'}];
-function initMap() {
-  if (map) { map.invalidateSize(); map.setView([S.loc.lat, S.loc.lon]); marker.setLatLng([S.loc.lat, S.loc.lon]); return; }
-  map = L.map('map', {zoomControl: true, attributionControl: true}).setView([S.loc.lat, S.loc.lon], 7);
-  map.createPane('labels'); map.getPane('labels').style.zIndex = 650; map.getPane('labels').style.pointerEvents = 'none';
-  const esri = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
-  BL.img = L.tileLayer(esri + 'World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom: 18, maxNativeZoom: 17, attribution: 'Imagen © Esri, Maxar, Earthstar Geographics'});
-  BL.topo = L.tileLayer(esri + 'World_Topo_Map/MapServer/tile/{z}/{y}/{x}', {maxZoom: 18, attribution: 'Mapa © Esri, HERE, Garmin, © OpenStreetMap'});
-  BL.labels = L.tileLayer(esri + 'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {maxZoom: 18, pane: 'labels'});
-  // NASA GIBS: VIIRS NOAA-20 (SNPP ya no se publica); si un día falla, MODIS Terra
-  const y = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
-  const gibs = lay => `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${lay}/default/${y}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg`;
-  BL.nasa = L.tileLayer(gibs('VIIRS_NOAA20_CorrectedReflectance_TrueColor'), {maxNativeZoom: 9, maxZoom: 14, attribution: 'NASA GIBS · VIIRS NOAA-20 · ' + y});
-  let fell = false;
-  BL.nasa.on('tileerror', () => { if (fell) return; fell = true; BL.nasa.setUrl(gibs('MODIS_Terra_CorrectedReflectance_TrueColor')); });
-  BL.img.addTo(map); BL.labels.addTo(map);
-  marker = L.circleMarker([S.loc.lat, S.loc.lon], {radius: 7, color: '#0b1433', weight: 2, fillColor: '#f7e463', fillOpacity: 1, pane: 'labels'}).addTo(map);
-  map.on('click', e => {
-    const {lat, lng} = e.latlng;
-    const div = document.createElement('div');
-    div.innerHTML = `<b>${num(lat, 3)}, ${num(lng, 3)}</b><br>`;
-    const b = document.createElement('button'); b.className = 'btn'; b.style.marginTop = '8px'; b.textContent = 'Usar este punto';
-    b.onclick = () => { map.closePopup(); setLoc({name: `${num(lat, 2)}, ${num(lng, 2)}`, admin: '', lat, lon: lng}); };
-    div.appendChild(b);
-    L.popup().setLatLng(e.latlng).setContent(div).openOn(map);
-  });
-  $('#layerChips').innerHTML = LAYERS.map(l => `<button class="chip" data-l="${l.id}" aria-pressed="${l.id === S.layer}">${l.l}</button>`).join('');
-  applyLayer();
-  loadRadar();
-}
-async function loadRadar() {
-  try {
-    const j = await rvData();
-    rvFrames = (j.radar?.past || []);
-    rvLayers = rvFrames.map(f => L.tileLayer(`${j.host}${f.path}/256/{z}/{x}/{y}/2/1_1.png`, {opacity: 0, maxNativeZoom: 7, maxZoom: 14, attribution: 'Radar © RainViewer', zIndex: 5}));
-    rvIdx = rvFrames.length - 1;
-    applyLayer();
-  } catch (e) { $('#rvtime').textContent = 'Radar no disponible ahora mismo'; }
-}
-function showFrame(i) {
-  rvLayers.forEach((l, k) => { if (k === i) { if (!map.hasLayer(l)) l.addTo(map); l.setOpacity(.8); } else if (map.hasLayer(l)) l.setOpacity(0); });
-  const f = rvFrames[i]; if (f) { const d = new Date(f.time * 1000); $('#rvtime').textContent = 'Radar ' + d.toLocaleString('es-ES', {weekday: 'short', hour: '2-digit', minute: '2-digit'}); }
-}
-function applyLayer() {
-  if (!map) return;
-  document.querySelectorAll('#layerChips .chip').forEach(c => c.setAttribute('aria-pressed', c.dataset.l === S.layer));
-  const want = S.layer === 'sat' ? 'nasa' : S.layer === 'topo' ? 'topo' : 'img';
-  ['img', 'topo', 'nasa'].forEach(k => { if (k === want) { if (!map.hasLayer(BL[k])) BL[k].addTo(map); } else if (map.hasLayer(BL[k])) map.removeLayer(BL[k]); });
-  if (S.layer === 'radar' && rvLayers.length) { showFrame(rvIdx); $('#rvPlay').hidden = false; }
-  else { rvLayers.forEach(l => map.hasLayer(l) && map.removeLayer(l)); stopRadar(); $('#rvPlay').hidden = S.layer !== 'radar'; $('#rvtime').textContent = S.layer === 'sat' ? 'Mosaico de satélite de ayer: nubes reales (NASA)' : S.layer === 'topo' ? 'Relieve, carreteras y núcleos' : 'Cargando radar…'; }
-}
-function stopRadar() { clearInterval(rvTimer); rvTimer = null; $('#rvPlay').textContent = '▶'; }
 const WOV = [['wind', 'Viento'], ['gust', 'Rachas'], ['rain', 'Lluvia'], ['temp', 'Temperatura'], ['clouds', 'Nubes'], ['pressure', 'Presión'], ['cape', 'CAPE'], ['rh', 'Humedad'], ['waves', 'Oleaje']];
 function renderWindy() {
   $('#wOverlay').innerHTML = WOV.map(([k, l]) => `<button class="chip" data-w="${k}" aria-pressed="${k === S.wOv}">${l}</button>`).join('');
@@ -894,11 +862,11 @@ function route(force) {
   document.querySelectorAll('nav.tabs a').forEach(a => a.toggleAttribute('aria-current', false) || (a.getAttribute('href') === '#' + v && a.setAttribute('aria-current', 'page')));
   if (!force && S.cur === v && S.loaded[v]) return;
   S.cur = v;
-  if (S.loaded[v]) { if (v === 'mapas' && map) setTimeout(() => map.invalidateSize(), 50); if (v === 'ahora' && nowMap) setTimeout(() => nowMap.invalidateSize(), 50); return; }
+  if (S.loaded[v]) { if (v === 'ahora' && nowMap) setTimeout(() => nowMap.invalidateSize(), 50); return; }
   S.loaded[v] = true;
   if (v === 'ahora') loadNow();
   if (v === 'modelos') { loadModels(); loadEnsemble(); }
-  if (v === 'mapas') { setTimeout(initMap, 30); renderWindy(); renderWx(); }
+  if (v === 'mapas') { renderWindy(); renderWx(); }
   if (v === 'clima') loadClimate();
   if (v === 'visores') renderLinks();
 }
@@ -927,13 +895,10 @@ $('#modelChips').addEventListener('click', e => { const b = e.target.closest('[d
 $('#daysSeg').addEventListener('click', e => { const b = e.target.closest('[data-d]'); if (!b) return; S.mDays = +b.dataset.d; store.set('atm.mDays', S.mDays); loadModels(); });
 $('#ensModel').addEventListener('change', e => { S.eModel = e.target.value; store.set('atm.eModel', S.eModel); loadEnsemble(); });
 $('#ensVar').addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (!b) return; S.eVar = b.dataset.v; store.set('atm.eVar', S.eVar); loadEnsemble(); });
-$('#layerChips').addEventListener('click', e => { const b = e.target.closest('[data-l]'); if (!b) return; S.layer = b.dataset.l; applyLayer(); });
-$('#rvPlay').onclick = () => {
-  if (rvTimer) return stopRadar();
-  $('#rvPlay').textContent = '❚❚';
-  rvTimer = setInterval(() => { rvIdx = (rvIdx + 1) % rvFrames.length; showFrame(rvIdx); }, 650);
-};
 $('#nowPlay').onclick = () => nowPlay(!nowTimer);
+const toggleKv = () => { const k = $('#nowKv'); k.hidden = !k.hidden; $('#nowBox').setAttribute('aria-expanded', String(!k.hidden)); const b = $('#nowBox .more-btn'); if (b) b.firstChild.textContent = k.hidden ? 'Ver todos los datos del momento ' : 'Ocultar datos '; };
+$('#nowBox').addEventListener('click', e => { if (e.target.closest('a,button,input')) return; toggleKv(); });
+$('#nowBox').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleKv(); } });
 $('#wOverlay').addEventListener('click', e => { const b = e.target.closest('[data-w]'); if (!b) return; S.wOv = b.dataset.w; renderWindy(); });
 $('#wProd').addEventListener('click', e => { const b = e.target.closest('[data-p]'); if (!b) return; S.wProd = b.dataset.p; renderWindy(); });
 /* nombre de la persona usuaria */
@@ -955,9 +920,9 @@ const ILL = {
 };
 const SLIDES = [
   {k: 'hola', tag: 'PREDICCIÓN Y CLIMA EN TU BOLSILLO', h: 'Hola, te damos la bienvenida a Atmos', p: 'Antes de empezar, ¿cómo te llamas? Solo lo usaremos para saludarte, y se queda en este móvil.', name: true},
-  {k: 'ahora', tag: 'AHORA', h: 'El tiempo, en este momento', p: 'Temperatura, viento, humedad y un aviso claro de si va a llover en las próximas horas, con radar en directo. Toca cualquier día para verlo hora a hora.'},
+  {k: 'ahora', tag: 'AHORA', h: 'El tiempo, en este momento', p: 'Toca el recuadro grande para ver todos los datos del momento. Aviso de lluvia, radar en directo, 16 días hora a hora y si es buen momento para correr, sembrar, tender la ropa o ir de terraza.'},
   {k: 'modelos', tag: 'MODELOS', h: 'Compara los mejores modelos', p: 'ECMWF y su versión con inteligencia artificial, ICON, GFS, AROME, Met Office… y sus conjuntos, para saber cuánta confianza merece la previsión.'},
-  {k: 'mapas', tag: 'MAPAS', h: 'Radar, satélite y mapas', p: 'Radar animado sobre imagen de satélite, nubes reales de la NASA, Windy y WXCharts con todos sus mapas.'},
+  {k: 'mapas', tag: 'MAPAS', h: 'Los mapas de los modelos', p: 'Windy animado con su meteograma y WXCharts con todos sus mapas, para ver de un vistazo lo que llega.'},
   {k: 'clima', tag: 'CLIMA', h: 'El clima de tu lugar desde 1940', p: 'Franjas de calentamiento, anomalías, climograma y proyecciones hasta 2050, con datos de Copernicus.'},
   {k: 'listo', tag: 'TODO LISTO', h: '¡A disfrutarlo!', p: 'Cambia tu ubicación arriba a la derecha y explora las pestañas de abajo. En «Visores» tienes más de 20 webs especializadas.', last: true}
 ];
