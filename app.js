@@ -261,6 +261,7 @@ const CATS = [
     {l: 'Senderismo y montaña', dur: 4, hrs: [7, 19], f: x => !x.day ? 0 : tri(x.at, 8, 22, 10) * (x.pn6 >= 1 ? 0.2 : x.dry) * tri(x.gu, 0, 40, 30) * (0.7 + 0.3 * tri(x.vis, 20000, 1e9, 15000)) * (0.75 + 0.25 * tri(x.uv, 0, 6, 4)), why: x => `${num(x.at)}°, rachas de ${num(x.gu)} km/h, visibilidad ${x.vis == null ? '–' : x.vis >= 20000 ? 'buena' : num(x.vis / 1000) + ' km'}`},
     {l: 'Pádel y tenis', dur: 2, hrs: [8, 23], f: x => tri(x.at, 12, 27, 9) * x.dry * tri(x.gu, 0, 20, 15) * (x.pp6 > 0.3 ? 0.3 : 1), why: x => `${num(x.at)}°, rachas de ${num(x.gu)} km/h${x.pp6 > 0.3 ? ', pista probablemente mojada' : ''}`},
     {l: 'Golf', dur: 4, hrs: [8, 19], f: x => !x.day ? 0 : tri(x.at, 12, 26, 9) * x.dry * tri(x.ws, 0, 18, 15), why: x => `${num(x.at)}°, ${wlab(x.ws)}`},
+    {l: 'Pesca', dur: 2, hrs: [0, 24], f: x => (0.3 * x.fsol + 0.35 * x.flight + 0.35 * x.fpres) * tri(x.ws, 0, 22, 18) * (x.storm ? 0 : x.p > 2 ? 0.5 : 1), why: x => `${x.fsolWhy}; ${x.fpresWhy}. Para el mar, mira la pestaña Mar`},
     {l: 'Nadar al aire libre', dur: 2, hrs: [10, 20], f: x => !x.day ? 0 : tri(x.t, 26, 34, 6) * x.dry * tri(x.ws, 0, 20, 15) * (1 - (x.cc || 0) / 200) * (0.6 + 0.4 * tri(x.uv, 0, 8, 4)), why: x => `${num(x.t)}°, ${x.cc < 30 ? 'sol' : 'nubes'}, UV ${num(x.uv)}`}
   ]},
   {k: 'campo', l: 'Agricultura', a: [
@@ -301,8 +302,18 @@ function renderActs(j) {
   const golden = i => { const t = h.time[i], dd = t.slice(0, 10), di = d.time.indexOf(dd); if (di < 0) return ''; const H = +t.slice(11, 13) + 0.5; const sr = d.sunrise[di], ss = d.sunset[di]; const hm = s => +s.slice(11, 13) + +s.slice(14, 16) / 60; if (Math.abs(H - hm(sr)) <= 1) return 'amanecer'; if (Math.abs(H - hm(ss)) <= 1) return 'atardecer'; return ''; };
   const X = i => ({t: h.temperature_2m[i], at: h.apparent_temperature[i], td: h.dew_point_2m?.[i], ws: h.wind_speed_10m[i] || 0, gu: h.wind_gusts_10m[i] || 0, p: P[i] || 0, pp: h.precipitation_probability[i] || 0,
     uv: h.uv_index[i] || 0, rh: h.relative_humidity_2m[i], rad: h.shortwave_radiation[i] || 0, cc: h.cloud_cover[i] || 0, day: h.is_day[i], vis: h.visibility?.[i], sm: h.soil_moisture_3_to_9cm?.[i], st: h.soil_temperature_6cm?.[i],
+    storm: (h.weather_code[i] || 0) >= 95, ...fishX(i),
     et0d: et0day[h.time[i].slice(0, 10)] || 0, pn6: win(i, 1, 6), pn24: win(i, 1, 24), pp6: win(i, -6, 0), gold: golden(i), aq: S.aqH ? S.aqH[h.time[i]] : null,
     get dry() { return this.p >= 0.2 ? 0 : this.p >= 0.05 ? 0.4 : 1 - Math.max(0, this.pp - 20) / 100; }});
+  const off = j.utc_offset_seconds || 0;
+  if (!S.solLoc || S.solLoc.k !== LL() + d.time[0]) S.solLoc = {k: LL() + d.time[0], s: typeof SunCalc !== 'undefined' ? solunar(S.loc.lat, S.loc.lon, d.time.slice(0, 4), off) : null};
+  function fishX(i) {
+    const ms = locEpoch(h.time[i], off) + 1800e3;
+    const so = S.solLoc.s ? solFactor(ms, S.solLoc.s) : {f: 0.6, why: ''};
+    const li = lightFactor(ms, d.time, d, off, 'surf');
+    const p3 = i >= 3 ? h.pressure_msl[i] - h.pressure_msl[i - 3] : 0;
+    return {fsol: so.f, fsolWhy: so.why || 'sin datos de la Luna', flight: li.f, fpres: p3 < -3 ? 0.5 : p3 < -0.4 ? 1 : p3 > 1.5 ? 0.55 : 0.85, fpresWhy: p3 < -0.4 && p3 >= -3 ? 'presión bajando suave' : p3 > 1.5 ? 'presión subiendo rápido' : p3 < -3 ? 'presión cayendo deprisa' : 'presión estable'};
+  }
   const XS = I.map(X);
   const today = j.current.time.slice(0, 10);
   const dayW = t => t.startsWith(today) ? 'hoy' : 'mañana';
@@ -670,6 +681,243 @@ $('#v-mapas').addEventListener('click', e => {
 });
 
 /* =========================================================
+   MAR
+   ========================================================= */
+const BEACHES = [
+  ['Matalascañas', 36.99, -6.56], ['Mazagón', 37.13, -6.82], ['Punta Umbría', 37.17, -6.97], ['Isla Cristina', 37.19, -7.32],
+  ['Chipiona', 36.74, -6.44], ['Cádiz, La Caleta', 36.53, -6.31], ['Cádiz, La Victoria', 36.51, -6.28], ['La Barrosa', 36.37, -6.18],
+  ['Conil', 36.27, -6.09], ['Zahara de los Atunes', 36.13, -5.85], ['Bolonia', 36.09, -5.77], ['Tarifa, Los Lances', 36.03, -5.62],
+  ['Marbella', 36.51, -4.88], ['Málaga, La Malagueta', 36.72, -4.41], ['Nerja', 36.75, -3.87], ['Cabo de Gata', 36.78, -2.24],
+  ['Valencia, Malvarrosa', 39.48, -0.32], ['Barcelona', 41.38, 2.19], ['Donostia, La Concha', 43.32, -1.99], ['Gijón, San Lorenzo', 43.54, -5.65],
+  ['A Coruña, Riazor', 43.37, -8.41], ['Las Palmas, Las Canteras', 28.14, -15.44]
+].map(([n, lat, lon]) => ({name: n, lat, lon}));
+S.beach = store.get('atm.beach', null);
+S.fishMode = store.get('atm.fish', 'surf');
+let beachMap, beachMk, beachRes = [];
+const MOON = p => p < 0.03 || p > 0.97 ? 'Luna nueva' : p < 0.22 ? 'Creciente' : p < 0.28 ? 'Cuarto creciente' : p < 0.47 ? 'Creciente gibosa' : p < 0.53 ? 'Luna llena' : p < 0.72 ? 'Menguante gibosa' : p < 0.78 ? 'Cuarto menguante' : 'Menguante';
+const card8 = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];
+const from = d => d == null ? '–' : 'del ' + card8[Math.round(d / 45) % 8];
+function renderBeachChips() {
+  const fav = S.beach && !BEACHES.some(b => b.name === S.beach.name) ? [S.beach] : [];
+  $('#beachChips').innerHTML = [...fav, ...BEACHES].map((b, i) => `<button class="chip" data-b="${i}" aria-pressed="${S.beach && S.beach.name === b.name}">${esc(b.name)}</button>`).join('');
+  $('#beachChips').dataset.list = JSON.stringify([...fav, ...BEACHES]);
+}
+function setBeach(b) { S.beach = b; store.set('atm.beach', b); renderBeachChips(); $('#beachRes').innerHTML = ''; loadSea(); if (beachMk) beachMk.setLatLng([b.lat, b.lon]); }
+/* Luna y períodos solunares por día (hora local del punto) */
+function solunar(lat, lon, days, off) {
+  return days.map(day => {
+    const t0 = locEpoch(day + 'T00:00', off), N = 145, alt = [];
+    for (let k = 0; k < N; k++) { const t = t0 + k * 600e3; alt.push([t, SunCalc.getMoonPosition(new Date(t), lat, lon).altitude]); }
+    let up = alt[0], lo = alt[0], rise = null, set = null;
+    alt.forEach((a, k) => { if (a[1] > up[1]) up = a; if (a[1] < lo[1]) lo = a; if (k) { const p = alt[k - 1]; if (p[1] < 0 && a[1] >= 0 && !rise) rise = a[0]; if (p[1] >= 0 && a[1] < 0 && !set) set = a[0]; } });
+    const ill = SunCalc.getMoonIllumination(new Date(t0 + 12 * 3600e3));
+    return {day, mid: t0 + 12 * 3600e3, major: [up[0], lo[0]], minor: [rise, set].filter(Boolean), rise, set, frac: ill.fraction, phase: ill.phase};
+  });
+}
+const fmtT = (ms, off) => { if (!ms) return '–'; const d = new Date(ms + off * 1000); return String(d.getUTCHours()).padStart(2, '0') + ':' + String(d.getUTCMinutes()).padStart(2, '0'); };
+function solFactor(ms, sol) {
+  let f = 0.45, why = 'fuera de períodos solunares';
+  for (const s of sol) {
+    for (const m of s.major) if (Math.abs(ms - m) <= 60 * 60e3) { f = 1; why = 'período solunar mayor (Luna en el meridiano)'; }
+    if (f < 1) for (const m of s.minor) if (Math.abs(ms - m) <= 30 * 60e3) { f = 0.8; why = 'período solunar menor (salida o puesta de la Luna)'; }
+  }
+  const s = sol.reduce((p, x) => !p || Math.abs(ms - x.mid) < Math.abs(ms - p.mid) ? x : p, null);
+  const ph = s ? s.phase : 0.5, nearNF = Math.min(Math.abs(ph - 0), Math.abs(ph - 0.5), Math.abs(ph - 1)) < 0.1;
+  return {f: Math.min(1, f * (nearNF ? 1.1 : 1)), why: why + (nearNF ? '; luna nueva o llena: más actividad' : '')};
+}
+function lightFactor(ms, days, D, off, mode) {
+  const di = days.findIndex(d => ms >= locEpoch(d + 'T00:00', off) && ms < locEpoch(d + 'T00:00', off) + 864e5); if (di < 0) return {f: 0.6, why: ''};
+  const sr = locEpoch(D.sunrise[di], off), ss = locEpoch(D.sunset[di], off);
+  if (Math.abs(ms - sr) <= 90 * 60e3) return {f: 1, why: 'alba: los peces se acercan a comer'};
+  if (Math.abs(ms - ss) <= 90 * 60e3) return {f: 1, why: 'ocaso: hora de máxima actividad'};
+  if (ms < sr || ms > ss) return {f: mode === 'sub' ? 0 : 0.75, why: mode === 'sub' ? 'de noche no se practica' : 'noche: buena para especies nocturnas'};
+  return {f: mode === 'barco' || mode === 'sub' ? 0.8 : 0.55, why: 'pleno día: actividad más baja'};
+}
+const FMODES = [
+  {k: 'surf', l: 'Surfcasting (playa)'}, {k: 'roca', l: 'Spinning y roca'}, {k: 'barco', l: 'Desde embarcación'}, {k: 'sub', l: 'Pesca submarina'}
+];
+async function loadSea() {
+  renderBeachChips();
+  renderFishModes();
+  const b = S.beach;
+  if (!b) { $('#seaNow').innerHTML = '<div class="state">Elige una playa arriba para ver el mar.</div>'; return; }
+  $('#seaNow').innerHTML = '<div class="state">Cargando el estado del mar…</div>';
+  const L = `latitude=${b.lat.toFixed(4)}&longitude=${b.lon.toFixed(4)}`;
+  try {
+    const [m, w] = await Promise.all([
+      getJSON(`https://marine-api.open-meteo.com/v1/marine?${L}&timezone=auto&past_days=1&forecast_days=7&minutely_15=sea_level_height_msl&hourly=wave_height,wave_direction,wave_period,wind_wave_height,swell_wave_height,swell_wave_direction,swell_wave_period,sea_surface_temperature,ocean_current_velocity,ocean_current_direction&daily=wave_height_max,wave_direction_dominant,wave_period_max`),
+      getJSON(`https://api.open-meteo.com/v1/forecast?${L}&timezone=auto&past_days=1&forecast_days=7&current=temperature_2m,wind_speed_10m,wind_gusts_10m,wind_direction_10m,weather_code,is_day&hourly=temperature_2m,wind_speed_10m,wind_gusts_10m,wind_direction_10m,pressure_msl,precipitation,precipitation_probability,weather_code,cloud_cover,uv_index,is_day,visibility&daily=sunrise,sunset,wind_speed_10m_max,wind_gusts_10m_max,temperature_2m_max`)
+    ]);
+    S.sea = {m, w}; renderSea();
+  } catch (e) { $('#seaNow').innerHTML = `<div class="state err">No hay datos marinos para este punto (${esc(e.message)}). Prueba a tocar un poco más dentro del mar.</div>`; }
+}
+function tideExtrema(T, V, off) {
+  const out = [];
+  for (let k = 2; k < V.length - 2; k++) {
+    const v = V[k]; if (v == null || V[k - 1] == null || V[k + 1] == null) continue;
+    const hi = v >= V[k - 1] && v > V[k + 1] && v >= V[k - 2] && v >= V[k + 2], lo = v <= V[k - 1] && v < V[k + 1] && v <= V[k - 2] && v <= V[k + 2];
+    if (!hi && !lo) continue;
+    const ms = locEpoch(T[k], off), last = out[out.length - 1];
+    if (last && ms - last.ms < 3 * 3600e3) { if ((hi && v > last.v && last.hi) || (lo && v < last.v && !last.hi)) out[out.length - 1] = {ms, t: T[k], v, hi}; continue; }
+    out.push({ms, t: T[k], v, hi});
+  }
+  return out;
+}
+function renderSea() {
+  const {m, w} = S.sea, b = S.beach, off = m.utc_offset_seconds || 0, now = Date.now();
+  const mh = m.hourly, wh = w.hourly, D = w.daily;
+  const T15 = m.minutely_15.time, V15 = m.minutely_15.sea_level_height_msl;
+  const ex = tideExtrema(T15, V15, off);
+  let k15 = T15.findIndex(t => locEpoch(t, off) >= now); if (k15 < 1) k15 = 1;
+  const tNow = V15[k15], rising = V15[k15] > V15[k15 - 1];
+  const nextEx = ex.find(e => e.ms > now);
+  const curH = w.current.time.slice(0, 13); let i0 = mh.time.findIndex(t => t.slice(0, 13) >= curH); if (i0 < 0) i0 = 0;
+  let j0 = wh.time.findIndex(t => t.slice(0, 13) >= curH); if (j0 < 0) j0 = 0;
+  const c = w.current;
+  const days = D.time.filter(d => d >= c.time.slice(0, 10));
+  const ranges = D.time.map(d => { const v = V15.filter((x, k) => T15[k].startsWith(d) && x != null); return v.length ? Math.max(...v) - Math.min(...v) : null; });
+  const maxR = Math.max(...ranges.filter(x => x != null));
+  const todayR = ranges[D.time.indexOf(c.time.slice(0, 10))];
+  const spring = todayR == null ? '' : todayR >= 0.85 * maxR ? 'mareas vivas' : todayR <= 0.6 * maxR ? 'mareas muertas' : 'mareas intermedias';
+  const sol = solunar(b.lat, b.lon, D.time, off);
+  S.seaSol = sol;
+  const ms = Math.abs(nextEx ? (nextEx.ms - now) / 60e3 : 0), hh = Math.floor(ms / 60), mm = Math.round(ms % 60);
+  $('#seaNow').innerHTML = `<div class="bn">${esc(b.name)}</div><div class="bs">${esc(WMO[c.weather_code] || '')} · aire ${num(c.temperature_2m)}° · punto del modelo ${num(m.latitude, 2)}, ${num(m.longitude, 2)}</div>
+    <div class="tidebar">Marea ${rising ? 'subiendo ↑ (llenante)' : 'bajando ↓ (vaciante)'} · ${num(tNow, 2)} m${nextEx ? `<small>${nextEx.hi ? 'Pleamar' : 'Bajamar'} a las ${hhmm(nextEx.t)} (${num(nextEx.v, 2)} m), dentro de ${hh ? hh + ' h ' : ''}${mm} min · ${spring}</small>` : ''}</div>
+    <div class="seabig">
+      <div><small>Olas</small><strong>${num(mh.wave_height[i0], 1)} m</strong><em>${num(mh.wave_period[i0])} s · ${from(mh.wave_direction[i0])}</em></div>
+      <div><small>Mar de fondo</small><strong>${num(mh.swell_wave_height[i0], 1)} m</strong><em>${num(mh.swell_wave_period[i0])} s · ${from(mh.swell_wave_direction[i0])}</em></div>
+      <div><small>Agua</small><strong>${num(mh.sea_surface_temperature[i0], 1)}°</strong><em>superficie</em></div>
+      <div><small>Viento</small><strong>${num(c.wind_speed_10m)}</strong><em>km/h ${from(c.wind_direction_10m)} · rachas ${num(c.wind_gusts_10m)}</em></div>
+      <div><small>Mar de viento</small><strong>${num(mh.wind_wave_height[i0], 1)} m</strong><em>olas locales</em></div>
+      <div><small>Corriente</small><strong>${num(mh.ocean_current_velocity[i0], 1)}</strong><em>km/h hacia ${card8[Math.round((mh.ocean_current_direction[i0] || 0) / 45) % 8]}</em></div>
+    </div>`;
+  // mareas: desde 6 h antes hasta 66 h después
+  const a = Math.max(0, k15 - 24), z = Math.min(T15.length, k15 + 264);
+  const Tt = T15.slice(a, z), Vt = V15.slice(a, z), exSet = new Set(ex.map(e => e.t));
+  setChart('tideChart', {type: 'line', data: {labels: Tt.map(t => lblD(t) + ' ' + hhmm(t)), datasets: [{label: 'Nivel del mar (m)', data: Vt, borderColor: '#4fc1c6', backgroundColor: 'rgba(79,193,198,.18)', fill: 'start', tension: .3,
+    pointRadius: Tt.map((t, k) => exSet.has(t) ? 4 : k === k15 - a ? 6 : 0), pointBackgroundColor: Tt.map((t, k) => k === k15 - a ? '#f7e463' : '#fff')}]},
+    options: {plugins: {legend: {display: false}, tooltip: {intersect: false, mode: 'index'}}, scales: {x: {grid: {display: false}, ticks: {maxTicksLimit: narrow() ? 4 : 7, maxRotation: 0, callback: function (v) { const l = this.getLabelForValue(v); return l.endsWith('00:00') || l.endsWith('12:00') ? l.replace(' 00:00', '').replace(' 12:00', ' 12h') : null; }}}, y: {title: {display: true, text: 'm'}}}}});
+  $('#tideSub').textContent = `Altura del mar cada 15 minutos. Hoy, carrera de marea de ${num(todayR, 2)} m (${spring}). El punto amarillo es ahora.`;
+  $('#tideTable').innerHTML = days.slice(0, 4).map(d => { const e = ex.filter(x => x.t.startsWith(d)); return `<div class="tday"><b>${lblD(d)}</b>${e.map(x => `<span class="${x.hi ? 'hi' : 'lo'}">${x.hi ? '▲' : '▼'} ${hhmm(x.t)} · ${num(x.v, 1)}</span>`).join('')}</div>`; }).join('');
+  // oleaje 7 días
+  const ia = Math.max(0, i0 - 3), I = mh.time.map((_, i) => i).filter(i => i >= ia);
+  setChart('waveChart', {type: 'line', data: {labels: I.map(i => lblH(mh.time[i])), datasets: [
+    {label: 'Altura total', data: I.map(i => mh.wave_height[i]), borderColor: '#eef1ff', borderWidth: 2.4, backgroundColor: 'rgba(238,241,255,.12)', fill: 'origin'},
+    {label: 'Mar de fondo', data: I.map(i => mh.swell_wave_height[i]), borderColor: '#4fc1c6'},
+    {label: 'Mar de viento', data: I.map(i => mh.wind_wave_height[i]), borderColor: '#f59a3a', borderDash: [4, 3]},
+    {label: 'Periodo (s)', data: I.map(i => mh.wave_period[i]), borderColor: 'rgba(247,228,99,.8)', borderWidth: 1.3, yAxisID: 'y1'}]},
+    options: {interaction: {mode: 'index', intersect: false}, plugins: {legend: {position: 'bottom', labels: {font: {size: 11}}}}, scales: {x: {ticks: xTicks(), grid: {display: false}}, y: {beginAtZero: true, title: {display: true, text: 'm'}}, y1: {position: 'right', beginAtZero: true, grid: {display: false}, title: {display: true, text: 's'}}}}});
+  const J = wh.time.map((_, i) => i).filter(i => i >= Math.max(0, j0 - 3));
+  setChart('windSea', {type: 'line', data: {labels: J.map(i => lblH(wh.time[i])), datasets: [
+    {label: 'Viento km/h', data: J.map(i => wh.wind_speed_10m[i]), borderColor: '#8ea2ff'}, {label: 'Rachas', data: J.map(i => wh.wind_gusts_10m[i]), borderColor: '#e8452c', borderDash: [4, 3]}]},
+    options: {interaction: {mode: 'index', intersect: false}, plugins: {legend: {position: 'bottom', labels: {font: {size: 11}}}, tooltip: {callbacks: {afterBody: it => 'Dirección: ' + from(wh.wind_direction_10m[J[it[0].dataIndex]])}}}, scales: {x: {ticks: xTicks(), grid: {display: false}}, y: {beginAtZero: true}}}});
+  renderFish();
+  // otras actividades
+  const SX = i => { const t = mh.time[i], j = wh.time.indexOf(t); return {wave: mh.wave_height[i], swell: mh.swell_wave_height[i], per: mh.swell_wave_period[i] ?? mh.wave_period[i], sst: mh.sea_surface_temperature[i], ws: wh.wind_speed_10m[j] || 0, gu: wh.wind_gusts_10m[j] || 0, p: wh.precipitation[j] || 0, day: wh.is_day[j], uv: wh.uv_index[j] || 0, t: wh.temperature_2m[j], storm: (wh.weather_code[j] || 0) >= 95}; };
+  const SA = [
+    {l: 'Baño', f: x => !x.day || x.storm ? 0 : tri(x.wave, 0, 0.6, 0.7) * tri(x.ws, 0, 18, 15) * tri(x.sst, 20, 28, 4) * tri(x.t, 22, 34, 6) * (x.p > 0.2 ? 0.3 : 1), why: x => `olas de ${num(x.wave, 1)} m, agua a ${num(x.sst)}°, aire a ${num(x.t)}°`},
+    {l: 'Surf', f: x => !x.day || x.storm ? 0 : tri(x.swell, 0.8, 2.5, 0.8) * tri(x.per, 9, 16, 4) * tri(x.ws, 0, 15, 15), why: x => `mar de fondo de ${num(x.swell, 1)} m con ${num(x.per)} s de periodo, viento ${num(x.ws)} km/h`},
+    {l: 'Kayak y paddle surf', f: x => !x.day || x.storm ? 0 : tri(x.wave, 0, 0.4, 0.4) * tri(x.ws, 0, 12, 10) * tri(x.gu, 0, 20, 10), why: x => `olas de ${num(x.wave, 1)} m, viento ${num(x.ws)} km/h, rachas ${num(x.gu)}`},
+    {l: 'Navegar a vela', f: x => !x.day || x.storm ? 0 : tri(x.ws, 10, 28, 10) * tri(x.gu, 0, 40, 10) * tri(x.wave, 0, 1.5, 1), why: x => `viento ${num(x.ws)} km/h, olas de ${num(x.wave, 1)} m`},
+    {l: 'Paseo por la orilla', f: x => x.storm ? 0 : tri(x.t, 12, 28, 8) * tri(x.ws, 0, 25, 15) * (x.p > 0.2 ? 0.2 : 1), why: x => `${num(x.t)}°, viento ${num(x.ws)} km/h`}
+  ];
+  const Is = Array.from({length: 48}, (_, k) => i0 + k).filter(i => i < mh.time.length);
+  $('#seaActs').innerHTML = SA.map(a => {
+    const sc = Is.map(i => Math.round(100 * Math.max(0, Math.min(1, a.f(SX(i))))));
+    let best = -1, bi = -1; sc.forEach((v, k) => { if (v > best + 2) { best = v; bi = k; } });
+    const now = sc[0], t0 = mh.time[Is[bi]];
+    return `<div class="a2"><div class="sc" style="background:${scCol(now)}"><div><b>${now}</b><small>${QL(now)[0].toLowerCase()}</small></div></div><div><h3>${a.l}</h3>
+      <div class="best">${best < 35 ? 'Sin buen momento en 48 h' : bi === 0 ? 'Ahora es buen momento' : `Mejor ${t0.startsWith(c.time.slice(0, 10)) ? 'hoy' : lblD(t0)} a las ${t0.slice(11, 13)} h · ${QL(best)[0].toLowerCase()}`}</div>
+      <div class="why">${esc(a.why(SX(Is[bi < 0 ? 0 : bi])))}</div><div class="hs">${sc.map(v => `<span style="background:${v === 0 ? 'rgba(255,255,255,.06)' : scCol(v)}"></span>`).join('')}</div><div class="hl"><span>ahora</span><span>+24 h</span><span>+48 h</span></div></div></div>`;
+  }).join('');
+  // 7 días
+  $('#seaDays').innerHTML = `<thead><tr><th>Día</th><th>Olas máx.</th><th>Dirección</th><th>Periodo</th><th>Viento máx.</th><th>Rachas</th><th>Agua</th><th>Pleamares</th><th>Bajamares</th><th>Luna</th></tr></thead><tbody>${m.daily.time.filter(d => d >= c.time.slice(0, 10)).map(d => {
+    const k = m.daily.time.indexOf(d), q = D.time.indexOf(d), e = ex.filter(x => x.t.startsWith(d)), s = sol.find(x => x.day === d);
+    const sst = mh.sea_surface_temperature.filter((v, i) => mh.time[i].startsWith(d) && v != null);
+    return `<tr><td>${lblD(d)}</td><td>${num(m.daily.wave_height_max[k], 1)} m</td><td>${from(m.daily.wave_direction_dominant[k])}</td><td>${num(m.daily.wave_period_max[k])} s</td><td>${num(D.wind_speed_10m_max[q])} km/h</td><td>${num(D.wind_gusts_10m_max[q])}</td><td>${sst.length ? num(sst.reduce((x, y) => x + y, 0) / sst.length, 1) + '°' : '–'}</td><td>${e.filter(x => x.hi).map(x => hhmm(x.t)).join(' · ')}</td><td>${e.filter(x => !x.hi).map(x => hhmm(x.t)).join(' · ')}</td><td>${s ? MOON(s.phase) + ' ' + num(s.frac * 100) + ' %' : ''}</td></tr>`;
+  }).join('')}</tbody>`;
+}
+function renderFishModes() { $('#fishMode').innerHTML = FMODES.map(f => `<button class="chip" data-f="${f.k}" aria-pressed="${f.k === S.fishMode}">${f.l}</button>`).join(''); }
+function renderFish() {
+  if (!S.sea) return;
+  const {m, w} = S.sea, off = m.utc_offset_seconds || 0, now = Date.now(), mode = S.fishMode;
+  const mh = m.hourly, wh = w.hourly, D = w.daily, sol = S.seaSol;
+  const T15 = m.minutely_15.time, V15 = m.minutely_15.sea_level_height_msl, ex = tideExtrema(T15, V15, off);
+  const lvl = ms => { const k = T15.findIndex(t => locEpoch(t, off) >= ms); return k < 1 ? null : k; };
+  const hours = wh.time.map((t, j) => ({t, j, ms: locEpoch(t, off)})).filter(o => o.ms >= now - 3600e3).slice(0, 72);
+  const score = o => {
+    const j = o.j, i = mh.time.indexOf(o.t), k = lvl(o.ms);
+    // marea: velocidad del agua y cercanía a la pleamar
+    let rate = 0, mx = 0.01; if (k) { rate = Math.abs(V15[k + 1] - V15[k - 1]); for (let q = Math.max(1, k - 48); q < Math.min(V15.length - 1, k + 48); q++) mx = Math.max(mx, Math.abs(V15[q + 1] - V15[q - 1])); }
+    const nearHi = ex.some(e => e.hi && e.ms - o.ms <= 2 * 3600e3 && o.ms - e.ms <= 3600e3);
+    const nearLo = ex.some(e => !e.hi && Math.abs(e.ms - o.ms) <= 3600e3);
+    let tide = 0.35 + 0.65 * Math.min(1, rate / mx); if (mode === 'surf' && nearHi) tide = Math.max(tide, 1); if (mode === 'sub') tide = nearHi || nearLo ? 1 : 0.6;
+    const tideWhy = mode === 'sub' ? (nearHi || nearLo ? 'repunte de marea: agua parada y más clara' : 'corriente de marea') : nearHi ? 'en torno a la pleamar (2 h antes a 1 h después)' : rate / mx > 0.6 ? 'marea moviendo mucha agua' : rate / mx < 0.25 ? 'marea casi parada (repunte)' : 'marea moviéndose';
+    const so = solFactor(o.ms, sol), li = lightFactor(o.ms, D.time, D, off, mode);
+    const p3 = j >= 3 ? wh.pressure_msl[j] - wh.pressure_msl[j - 3] : 0;
+    const pres = p3 < -3 ? 0.5 : p3 < -0.4 ? 1 : p3 > 1.5 ? 0.55 : 0.85;
+    const presWhy = p3 < -3 ? 'presión cayendo deprisa: llega temporal' : p3 < -0.4 ? 'presión bajando suave: los peces comen más' : p3 > 1.5 ? 'presión subiendo rápido: suelen parar' : 'presión estable';
+    const ws = wh.wind_speed_10m[j] || 0, gu = wh.wind_gusts_10m[j] || 0, wv = i >= 0 ? mh.wave_height[i] : null;
+    const wind = mode === 'barco' ? tri(ws, 0, 15, 10) * tri(gu, 0, 25, 10) : mode === 'sub' ? tri(ws, 0, 12, 10) : mode === 'roca' ? tri(ws, 0, 20, 15) : tri(ws, 0, 25, 20);
+    const wave = wv == null ? 0.7 : mode === 'surf' ? tri(wv, 0.5, 1.5, 1) : mode === 'roca' ? (wv > 2 ? 0 : tri(wv, 0.3, 1.2, 0.8)) : mode === 'barco' ? tri(wv, 0, 0.8, 0.6) : tri(wv, 0, 0.5, 0.4);
+    const p = wh.precipitation[j] || 0, storm = (wh.weather_code[j] || 0) >= 95;
+    const rain = storm ? 0 : p > 2 ? 0.5 : p > 0.3 ? 0.85 : 1;
+    const bio = 0.3 * tide + 0.25 * so.f + 0.25 * li.f + 0.2 * pres;
+    const s = Math.round(100 * Math.min(1, bio) * wind * wave * rain * (li.f === 0 ? 0 : 1));
+    return {s, o, i, F: [['Marea', tide, tideWhy], ['Luna', so.f, so.why], ['Luz', li.f, li.why], ['Presión', pres, presWhy + ` (${sgn(p3, 1)} hPa en 3 h)`], ['Viento', wind, `${num(ws)} km/h ${from(wh.wind_direction_10m[j])}, rachas ${num(gu)}`], ['Oleaje', wave, wv == null ? 'sin dato' : `${num(wv, 1)} m`], ['Lluvia', rain, storm ? 'tormenta: no pesques' : p > 0.3 ? `${num(p, 1)} mm` : 'seco']], wv, ws};
+  };
+  const R = hours.map(score);
+  let bestK = 0; R.forEach((r, k) => { if (r.s > R[bestK].s) bestK = k; });
+  // tres mejores ventanas separadas
+  const tops = []; [...R].sort((x, y) => y.s - x.s).forEach(r => { if (tops.length < 3 && r.s >= 35 && !tops.some(q => Math.abs(q.o.ms - r.o.ms) < 4 * 3600e3)) tops.push(r); });
+  const sel = S.fishSel != null && R[S.fishSel] ? R[S.fishSel] : R[bestK];
+  const lab = r => `${r.o.t.startsWith(w.current.time.slice(0, 10)) ? 'hoy' : lblD(r.o.t)} a las ${r.o.t.slice(11, 13)} h`;
+  $('#fishBest').innerHTML = `<div class="fbest"><div class="sc" style="background:${scCol(R[0].s)}"><div><b>${R[0].s}</b><small>ahora</small></div></div><div><h3>${FMODES.find(f => f.k === mode).l}</h3><p>${tops.length ? 'Mejores momentos: ' + tops.map(r => `<b style="color:var(--ink)">${lab(r)}</b> (${r.s})`).join(', ') : 'No hay buenos momentos en las próximas 72 h.'}</p></div></div>`;
+  setChart('fishChart', {type: 'bar', data: {labels: R.map(r => lblH(r.o.t)), datasets: [{label: 'Nota de pesca', data: R.map(r => r.s), backgroundColor: R.map(r => scCol(r.s)), borderRadius: 2, categoryPercentage: 1, barPercentage: .9}]},
+    options: {plugins: {legend: {display: false}}, onClick: (e, els) => { if (els.length) { S.fishSel = els[0].index; renderFish(); } }, scales: {x: {ticks: xTicks(), grid: {display: false}}, y: {min: 0, max: 100}}}});
+  $('#fishWhen').textContent = `Para ${lab(sel)} · nota ${sel.s}. Toca una barra de la gráfica para ver otra hora.`;
+  $('#fishFactors').innerHTML = sel.F.map(([k, v, why]) => `<div class="fac"><span>${k}</span><div class="b"><i style="width:${Math.round(v * 100)}%;background:${scCol(v * 100)}"></i></div><span>${Math.round(v * 100)}</span><em>${esc(why)}</em></div>`).join('');
+  const tips = [];
+  if (mode === 'surf') tips.push(sel.wv >= 0.5 && sel.wv <= 1.5 ? '<b>Mar con movimiento:</b> busca la segunda rompiente y los canales entre bancos de arena; la lubina y la dorada entran a comer.' : sel.wv > 1.5 ? '<b>Mar grande:</b> plomos de garra y lances largos; mejor en playas abrigadas.' : '<b>Mar en calma:</b> agua clara; aleja el lance, baja el grosor del bajo de línea y prueba de noche.');
+  if (mode === 'roca') tips.push('<b>Spinning:</b> las primeras y últimas luces con espuma en las piedras son lo mejor para la lubina. Ojo con el oleaje en zonas de roca.');
+  if (mode === 'barco') tips.push(sel.ws > 15 ? '<b>Precaución:</b> viento por encima de 15 km/h; consulta los avisos de Salvamento Marítimo y AEMET antes de salir.' : '<b>Buen día de barco</b> si el oleaje se mantiene bajo; aprovecha los repuntes para fondear en piedra.');
+  if (mode === 'sub') tips.push('<b>Pesca submarina:</b> solo de día, con boya y acompañado. Necesita mar en calma y agua clara; la visibilidad mejora en los repuntes de marea.');
+  tips.push('Comprueba siempre la normativa: licencia de pesca recreativa de tu comunidad, tallas mínimas y zonas protegidas.');
+  $('#fishTips').innerHTML = tips.join('<br><br>');
+  // calendario solunar
+  $('#solTable').innerHTML = `<thead><tr><th>Día</th><th>Luna</th><th>Mayor 1</th><th>Mayor 2</th><th>Salida luna</th><th>Puesta luna</th><th>Pleamares</th><th>Bajamares</th><th>Alba / ocaso</th></tr></thead><tbody>${sol.filter(s => s.day >= w.current.time.slice(0, 10)).map(s => {
+    const e = ex.filter(x => x.t.startsWith(s.day)), q = D.time.indexOf(s.day), mj = s.major.slice().sort((a, b) => a - b);
+    return `<tr><td>${lblD(s.day)}</td><td>${MOON(s.phase)} · ${num(s.frac * 100)} %</td><td>${fmtT(mj[0], off)}</td><td>${fmtT(mj[1], off)}</td><td>${fmtT(s.rise, off)}</td><td>${fmtT(s.set, off)}</td><td>${e.filter(x => x.hi).map(x => hhmm(x.t)).join(' · ')}</td><td>${e.filter(x => !x.hi).map(x => hhmm(x.t)).join(' · ')}</td><td>${D.sunrise[q]?.slice(11, 16)} / ${D.sunset[q]?.slice(11, 16)}</td></tr>`;
+  }).join('')}</tbody>`;
+}
+$('#beachChips').addEventListener('click', e => { const bt = e.target.closest('[data-b]'); if (!bt) return; const L = JSON.parse($('#beachChips').dataset.list || '[]'); setBeach(L[+bt.dataset.b]); });
+$('#fishMode').addEventListener('click', e => { const bt = e.target.closest('[data-f]'); if (!bt) return; S.fishMode = bt.dataset.f; S.fishSel = null; store.set('atm.fish', S.fishMode); renderFishModes(); renderFish(); });
+let beachT;
+async function beachSearch(q) {
+  if (q.trim().length < 2) { $('#beachRes').innerHTML = ''; return; }
+  try {
+    const j = await getJSON(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=8&language=es&format=json`);
+    beachRes = j.results || [];
+    $('#beachRes').innerHTML = beachRes.length ? beachRes.map((r, i) => `<li><button class="go" data-br="${i}">${esc(r.name)} <small>${esc([r.admin2, r.admin1, r.country].filter(Boolean).join(', '))}</small></button></li>`).join('') : '<li class="note" style="padding:10px 0">Sin resultados. Prueba con el pueblo o elige en el mapa.</li>';
+  } catch (e) { $('#beachRes').innerHTML = `<li class="err">${esc(e.message)}</li>`; }
+}
+$('#beachQ').addEventListener('input', e => { clearTimeout(beachT); beachT = setTimeout(() => beachSearch(e.target.value), 300); });
+$('#beachForm').addEventListener('submit', e => { e.preventDefault(); beachSearch($('#beachQ').value); });
+$('#beachRes').addEventListener('click', e => { const bt = e.target.closest('[data-br]'); if (!bt) return; const r = beachRes[+bt.dataset.br]; $('#beachQ').value = ''; setBeach({name: r.name, lat: r.latitude, lon: r.longitude}); });
+$('#beachMapBtn').onclick = () => {
+  const wrap = $('#beachMapWrap'); wrap.hidden = !wrap.hidden; if (wrap.hidden) return;
+  const ll = S.beach ? [S.beach.lat, S.beach.lon] : [36.6, -6.3];
+  if (!beachMap) {
+    beachMap = L.map('beachMap', {scrollWheelZoom: false}).setView(ll, 9);
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom: 17, attribution: '© Esri'}).addTo(beachMap);
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {maxZoom: 17}).addTo(beachMap);
+    beachMk = L.circleMarker(ll, {radius: 8, color: '#0b1433', weight: 2, fillColor: '#f7e463', fillOpacity: 1}).addTo(beachMap);
+    beachMap.on('click', e => setBeach({name: `Punto ${num(e.latlng.lat, 3)}, ${num(e.latlng.lng, 3)}`, lat: e.latlng.lat, lon: e.latlng.lng}));
+  } else { setTimeout(() => beachMap.invalidateSize(), 50); beachMap.setView(ll); }
+};
+
+/* =========================================================
    CLIMA
    ========================================================= */
 const STRIPE = ['#08306b','#08519c','#2171b5','#4292c6','#6baed6','#9ecae1','#c6dbef','#deebf7','#fee0d2','#fcbba1','#fc9272','#fb6a4a','#ef3b2c','#cb181d','#a50f15','#67000d'];
@@ -853,7 +1101,7 @@ async function search(q) {
 /* =========================================================
    RUTAS
    ========================================================= */
-const VIEWS = ['ahora', 'modelos', 'mapas', 'clima', 'visores'];
+const VIEWS = ['ahora', 'modelos', 'mapas', 'mar', 'clima', 'visores'];
 function route(force) {
   if (location.hash === '#dia') return;
   if ($('#dayView').classList.contains('on')) closeDay();
@@ -867,6 +1115,7 @@ function route(force) {
   if (v === 'ahora') loadNow();
   if (v === 'modelos') { loadModels(); loadEnsemble(); }
   if (v === 'mapas') { renderWindy(); renderWx(); }
+  if (v === 'mar') loadSea();
   if (v === 'clima') loadClimate();
   if (v === 'visores') renderLinks();
 }
